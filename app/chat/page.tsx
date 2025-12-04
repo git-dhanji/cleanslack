@@ -1,13 +1,13 @@
-import { redirect } from "next/navigation"
-import { getSession } from "@/lib/auth"
-import { ChatLayout } from "@/components/chat/chat-layout"
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/auth";
+import { ChatLayout } from "@/components/chat/chat-layout";
 
 export default async function ChatPage() {
-  const session = await getSession()
+  const session = await getSession();
 
   if (!session) {
-    redirect("/login")
+    redirect("/login");
   }
 
-  return <ChatLayout user={session} />
+  return <ChatLayout user={session} />;
 }

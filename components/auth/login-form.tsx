@@ -28,7 +28,7 @@ export function LoginForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      
+
       const data = await res.json();
 
       if (!res.ok) {
@@ -82,7 +82,7 @@ export function LoginForm() {
         <CardFooter className="flex  flex-col py-4 gap-4">
           <Button
             type="submit"
-            className="w-full cursor-pointer bg-primary text-primary-foreground hover:bg-primary/90"
+            className="w-full mt-4 cursor-pointer bg-primary text-primary-foreground hover:bg-primary/90"
             disabled={isLoading}
           >
             {isLoading ? (

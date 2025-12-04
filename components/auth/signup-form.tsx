@@ -1,62 +1,62 @@
-"use client"
+"use client";
 
-import type React from "react"
+import type React from "react";
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardFooter } from "@/components/ui/card"
-import { toast } from "sonner"
-import { Loader2 } from "lucide-react"
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
 
 export function SignupForm() {
-  const [username, setUsername] = useState("")
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const router = useRouter()
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
     if (password !== confirmPassword) {
-      toast.error("Passwords do not match")
-      return
+      toast.error("Passwords do not match");
+      return;
     }
 
     if (password.length < 6) {
-      toast.error("Password must be at least 6 characters")
-      return
+      toast.error("Password must be at least 6 characters");
+      return;
     }
 
-    setIsLoading(true)
+    setIsLoading(true);
 
     try {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, email, password }),
-      })
+      });
 
-      const data = await res.json()
+      const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Signup failed")
+        throw new Error(data.error || "Signup failed");
       }
 
-      toast.success("Account created successfully!")
-      router.push("/chat")
-      router.refresh()
+      toast.success("Account created successfully!");
+      router.push("/chat");
+      router.refresh();
     } catch (error: any) {
-      toast.error(error.message)
+      toast.error(error.message);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   return (
     <Card className="border-border bg-card">
@@ -125,7 +125,7 @@ export function SignupForm() {
         <CardFooter className="flex flex-col gap-4">
           <Button
             type="submit"
-            className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+            className="w-full cursor-pointer mt-4 bg-primary text-primary-foreground hover:bg-primary/90"
             disabled={isLoading}
           >
             {isLoading ? (
@@ -146,5 +146,5 @@ export function SignupForm() {
         </CardFooter>
       </form>
     </Card>
-  )
+  );
 }
