@@ -20,7 +20,7 @@ export function Hero() {
           </h1>
 
           <p className="animate-fade-in-up animation-delay-200 mx-auto mt-6 max-w-xl text-pretty text-lg text-muted-foreground">
-            Peerlink links two devices directly, browser to browser. Share a code, connect, and
+            Cove links two devices directly, browser to browser. Share a code, connect, and
             chat or send files end-to-end encrypted — with nothing passing through, or stored on,
             any server.
           </p>

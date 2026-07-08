@@ -10,10 +10,10 @@ const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
 export const metadata: Metadata = {
-  title: "Peerlink — Private peer-to-peer chat & file sharing",
+  title: "Cove — Private peer-to-peer chat & file sharing",
   description:
     "Connect two devices directly, browser-to-browser. End-to-end encrypted chat and file transfer with no accounts, no stored data, and nothing passing through a server.",
-  generator: "Peerlink",
+  generator: "Cove",
 }
 
 export default function RootLayout({

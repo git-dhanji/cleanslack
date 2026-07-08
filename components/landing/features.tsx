@@ -42,7 +42,7 @@ export function Features() {
             Built for privacy, by design
           </h2>
           <p className="mt-4 text-pretty text-muted-foreground">
-            Peerlink is not "private because we promise". It is private because the data
+            Cove is not "private because we promise". It is private because the data
             physically never reaches us.
           </p>
         </div>

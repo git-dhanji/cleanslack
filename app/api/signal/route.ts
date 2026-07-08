@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server"
 import type { ServerEvent, SignalPost } from "@/lib/signaling-types"
 
-// This is the ONLY server-side state in Peerlink. It exists purely to introduce
+// This is the ONLY server-side state in Cove. It exists purely to introduce
 // two peers who share a code. It holds nothing about who they are, and never sees
 // a single chat message or file — those go directly between the two devices.
 //
@@ -24,9 +24,9 @@ interface Room {
 }
 
 // Survive dev hot-reloads by hanging state off globalThis.
-const g = globalThis as unknown as { __peerlinkRooms?: Map<string, Room> }
-const rooms: Map<string, Room> = g.__peerlinkRooms ?? new Map()
-g.__peerlinkRooms = rooms
+const g = globalThis as unknown as { __coveRooms?: Map<string, Room> }
+const rooms: Map<string, Room> = g.__coveRooms ?? new Map()
+g.__coveRooms = rooms
 
 const encoder = new TextEncoder()
 const MAX_PEERS = 2

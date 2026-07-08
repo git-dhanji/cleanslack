@@ -3,7 +3,7 @@ import { SiteHeader } from "@/components/site-header"
 import { ConnectPanel } from "@/components/connect/connect-panel"
 
 export const metadata = {
-  title: "Connect — Peerlink",
+  title: "Connect — Cove",
   // Invite links carry a connection code in the URL — keep them out of search indexes.
   robots: { index: false, follow: false },
 }

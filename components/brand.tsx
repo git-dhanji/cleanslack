@@ -1,14 +1,14 @@
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 
-/** The Peerlink wordmark + mark. Minimal: two linked nodes. */
+/** The Cove wordmark + mark. Minimal: two linked nodes. */
 export function Brand({ className, href = "/" }: { className?: string; href?: string | null }) {
   const inner = (
     <span className={cn("inline-flex items-center gap-2 font-semibold tracking-tight", className)}>
       <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary text-primary-foreground">
         <LinkMark className="h-4 w-4" />
       </span>
-      <span className="text-lg">Peerlink</span>
+      <span className="text-lg">Cove</span>
     </span>
   )
   if (href === null) return inner

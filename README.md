@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔗 Peerlink — Private, peer-to-peer chat & file sharing
+# 🔗 Cove — Private, peer-to-peer chat & file sharing
 
 <p align="center">
   <img src="https://img.shields.io/badge/Next.js-16.0-black?style=for-the-badge&logo=next.js" alt="Next.js" />
@@ -20,7 +20,7 @@
 
 ## What it is
 
-Peerlink links two devices **directly** using WebRTC. You share a short code (generated or your
+Cove links two devices **directly** using WebRTC. You share a short code (generated or your
 own), the other person enters it, and from that moment your two browsers talk to each other with
 **no server in the middle**.
 
@@ -32,14 +32,14 @@ own), the other person enters it, and from that moment your two browsers talk to
 
 ## How it works
 
-Peerlink has exactly **one** server responsibility: *introductions*.
+Cove has exactly **one** server responsibility: *introductions*.
 
 1. **Introduction (signaling).** When you share a code and your peer enters it, the two browsers
    exchange a small handshake (network addresses + encryption setup). The server relays only these
    tiny notes — never a message or a file. This is the single API route, [`/api/signal`](app/api/signal/route.ts),
    and it keeps its state **in memory only** (no database, nothing persisted).
 2. **Direct link.** Once a path is found, an encrypted data channel opens straight between the two
-   devices and Peerlink **closes the signaling connection**. The server is now out of the loop; all
+   devices and Cove **closes the signaling connection**. The server is now out of the loop; all
    data flows peer-to-peer.
 
 ```

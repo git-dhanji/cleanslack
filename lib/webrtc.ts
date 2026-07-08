@@ -151,7 +151,7 @@ export class PeerConnection {
   private async makeOffer() {
     const pc = this.pc
     if (!pc) return
-    const channel = pc.createDataChannel("peerlink", { ordered: true })
+    const channel = pc.createDataChannel("cove", { ordered: true })
     this.setupChannel(channel)
     const offer = await pc.createOffer()
     await pc.setLocalDescription(offer)
