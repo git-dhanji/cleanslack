@@ -14,6 +14,13 @@ export const metadata: Metadata = {
   description:
     "Connect two devices directly, browser-to-browser. End-to-end encrypted chat and file transfer with no accounts, no stored data, and nothing passing through a server.",
   generator: "Wisp",
+  icons: {
+    icon: [
+      { url: "/ind-slack-icon.svg", type: "image/svg+xml" },
+      { url: "/ind-slack-icon.png", type: "image/png" },
+    ],
+    apple: "/ind-slack-icon.png",
+  },
 }
 
 export default function RootLayout({
