@@ -8,6 +8,7 @@ import { LinkMark } from "@/components/brand"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { StatusBadge } from "./status-badge"
 import { FileBubble } from "./file-bubble"
+import { EmojiPicker } from "./emoji-picker"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -45,8 +46,25 @@ export function ChatRoom({
   const [draft, setDraft] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const connected = status === "connected"
   const ended = status === "disconnected" || status === "failed"
+
+  const insertEmoji = (emoji: string) => {
+    const el = textareaRef.current
+    if (!el) {
+      setDraft((d) => d + emoji)
+      return
+    }
+    const start = el.selectionStart ?? draft.length
+    const end = el.selectionEnd ?? draft.length
+    setDraft(draft.slice(0, start) + emoji + draft.slice(end))
+    requestAnimationFrame(() => {
+      el.focus()
+      const pos = start + emoji.length
+      el.setSelectionRange(pos, pos)
+    })
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
@@ -151,6 +169,7 @@ export function ChatRoom({
                 e.target.value = ""
               }}
             />
+            <EmojiPicker onPick={insertEmoji} disabled={!connected} />
             <Button
               size="icon"
               variant="outline"
@@ -162,6 +181,7 @@ export function ChatRoom({
               <Paperclip className="h-4 w-4" />
             </Button>
             <Textarea
+              ref={textareaRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
