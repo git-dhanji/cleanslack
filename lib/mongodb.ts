@@ -1,6 +1,6 @@
 import mongoose from "mongoose"
 
-// Cove uses MongoDB for ONE thing only: reserving connection codes so two
+// Wisp uses MongoDB for ONE thing only: reserving connection codes so two
 // people never collide on the same code. It stores just the code + a timestamp
 // — never messages, files, or any identity. If the database is unreachable, the
 // app still works (code checks fall back to the in-memory room cap).

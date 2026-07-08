@@ -54,7 +54,7 @@ function newId() {
 
 // Remember the last successful connection so a returning user can rejoin without
 // retyping the code. Only the code + role are kept, locally, for 24h.
-const LAST_KEY = "cove:last"
+const LAST_KEY = "wisp:last"
 const LAST_TTL = 24 * 60 * 60 * 1000
 
 export interface LastSession {
@@ -148,7 +148,8 @@ export function usePeer() {
           if (typeof msg.text === "string") {
             setPeerActivity("idle") // they just sent — no longer typing
             addItem({
-              id: newId(),
+              // Share the sender's id so "delete for everyone" matches on both sides.
+              id: typeof msg.id === "string" ? msg.id : newId(),
               kind: "text",
               text: msg.text,
               mine: false,
@@ -159,6 +160,12 @@ export function usePeer() {
         case "activity":
           if (msg.state === "typing" || msg.state === "present" || msg.state === "idle") {
             setPeerActivity(msg.state)
+          }
+          break
+        case "delete":
+          // Peer deleted a message for everyone — remove it on our side too.
+          if (typeof msg.id === "string") {
+            setItems((prev) => prev.filter((it) => it.id !== msg.id))
           }
           break
         case "file-start":
@@ -282,8 +289,12 @@ export function usePeer() {
       const trimmed = text.trim()
       const peer = peerRef.current
       if (!trimmed || !peer?.isOpen()) return
-      peer.sendText(trimmed)
-      addItem({ id: newId(), kind: "text", text: trimmed, mine: true, ts: Date.now() })
+      // Send the id with the message so both sides key the message the same way
+      // (required for "delete for everyone" to find it on the peer).
+      const id = newId()
+      const ts = Date.now()
+      peer.sendControl({ k: "msg", id, text: trimmed, ts })
+      addItem({ id, kind: "text", text: trimmed, mine: true, ts })
     },
     [addItem],
   )
@@ -328,6 +339,12 @@ export function usePeer() {
     },
     [addItem, patchItem],
   )
+
+  // Delete a message: locally always; "for everyone" also tells the peer to drop it.
+  const deleteItem = useCallback((id: string, forEveryone: boolean) => {
+    setItems((prev) => prev.filter((it) => it.id !== id))
+    if (forEveryone) peerRef.current?.sendControl({ k: "delete", id })
+  }, [])
 
   // ---- Call actions ----
   const startCall = useCallback((video: boolean) => {
@@ -390,6 +407,7 @@ export function usePeer() {
     sendText,
     sendFile,
     sendActivity,
+    deleteItem,
     disconnect,
     // calls
     callState,

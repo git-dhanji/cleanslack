@@ -2,16 +2,22 @@
 
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Send, LogOut, ShieldCheck, Paperclip, Loader2, WifiOff, RotateCcw, Phone, Video } from "lucide-react"
+import { Send, LogOut, ShieldCheck, Paperclip, Loader2, WifiOff, RotateCcw, Phone, Video, MoreVertical, Trash2 } from "lucide-react"
 import type { ChatItem, PeerStatus, PeerActivity, CallState } from "@/hooks/use-peer"
 import { LinkMark } from "@/components/brand"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { StatusBadge } from "./status-badge"
+import { PresenceLine } from "./presence-line"
 import { FileBubble } from "./file-bubble"
 import { EmojiPicker } from "./emoji-picker"
 import { MessageText } from "./message-text"
-import { TypingIndicator } from "./typing-indicator"
 import { CallOverlay } from "./call-overlay"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -25,7 +31,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { cn } from "@/lib/utils"
 
 export interface CallProps {
   state: CallState
@@ -51,6 +56,7 @@ interface ChatRoomProps {
   onSend: (text: string) => void
   onSendFile: (file: File) => void
   onActivity: (state: PeerActivity) => void
+  onDelete: (id: string, forEveryone: boolean) => void
   onReconnect: () => Promise<{ taken: boolean }>
   onDisconnect: () => void
 }
@@ -64,6 +70,7 @@ export function ChatRoom({
   onSend,
   onSendFile,
   onActivity,
+  onDelete,
   onReconnect,
   onDisconnect,
 }: ChatRoomProps) {
@@ -148,7 +155,7 @@ export function ChatRoom({
             <div className="min-w-0">
               <div className="truncate font-mono text-sm font-medium leading-none">{code}</div>
               <div className="mt-1">
-                <StatusBadge status={status} />
+                <PresenceLine status={status} activity={peerActivity} />
               </div>
             </div>
           </div>
@@ -216,13 +223,17 @@ export function ChatRoom({
             )}
 
             {items.map((item) => (
-              <div key={item.id} className={cn("flex", item.mine ? "justify-end" : "justify-start")}>
+              <div
+                key={item.id}
+                className={cn("group flex items-center gap-1", item.mine ? "justify-end" : "justify-start")}
+              >
+                {item.mine && <MessageActions mine onDelete={(all) => onDelete(item.id, all)} />}
                 {item.kind === "file" ? (
                   <FileBubble file={item} />
                 ) : (
                   <div
                     className={cn(
-                      "max-w-[80%] rounded-2xl px-4 py-2 text-sm leading-relaxed shadow-sm",
+                      "flex max-w-[80%] flex-col rounded-2xl px-3.5 py-2 text-sm leading-relaxed shadow-sm",
                       item.mine
                         ? "rounded-br-sm bg-primary text-primary-foreground"
                         : "rounded-bl-sm bg-secondary text-secondary-foreground",
@@ -231,14 +242,15 @@ export function ChatRoom({
                     <MessageText text={item.text} mine={item.mine} />
                     <span
                       className={cn(
-                        "mt-1 block text-[10px]",
-                        item.mine ? "text-primary-foreground/70" : "text-muted-foreground",
+                        "mt-1 self-end text-[10px] tabular-nums leading-none",
+                        item.mine ? "text-primary-foreground/60" : "text-muted-foreground",
                       )}
                     >
                       {new Date(item.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
                 )}
+                {!item.mine && <MessageActions onDelete={(all) => onDelete(item.id, all)} />}
               </div>
             ))}
           </div>
@@ -248,10 +260,7 @@ export function ChatRoom({
       {/* Composer */}
       {!ended && (
         <div className="border-t border-border/70 bg-card/40 backdrop-blur">
-          <div className="mx-auto max-w-3xl px-4 pt-1.5">
-            <TypingIndicator activity={connected ? peerActivity : "idle"} />
-          </div>
-          <div className="mx-auto flex max-w-3xl items-end gap-2 px-4 pb-3">
+          <div className="mx-auto flex max-w-3xl items-end gap-2 px-4 py-3">
             <input
               ref={fileInputRef}
               type="file"
@@ -309,6 +318,40 @@ export function ChatRoom({
         </div>
       )}
     </div>
+  )
+}
+
+function MessageActions({
+  mine,
+  onDelete,
+}: {
+  mine?: boolean
+  onDelete: (forEveryone: boolean) => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-secondary focus:opacity-100 group-hover:opacity-100 max-sm:opacity-70"
+          aria-label="Message options"
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={mine ? "end" : "start"}>
+        <DropdownMenuItem onClick={() => onDelete(false)}>
+          <Trash2 className="mr-2 h-4 w-4" /> Delete for me
+        </DropdownMenuItem>
+        {mine && (
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => onDelete(true)}
+          >
+            <Trash2 className="mr-2 h-4 w-4" /> Delete for everyone
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

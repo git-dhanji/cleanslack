@@ -2,41 +2,52 @@
 
 import Link from "next/link"
 import { motion, type Variants } from "motion/react"
-import { ArrowRight, ShieldCheck, Lock } from "lucide-react"
+import { ArrowRight, ShieldCheck, Lock, UserX, ServerOff, Infinity as InfinityIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const container: Variants = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.12, delayChildren: 0.05 } },
+  show: { transition: { staggerChildren: 0.1, delayChildren: 0.05 } },
 }
 const item: Variants = {
   hidden: { opacity: 0, y: 20 },
   show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
 }
 
+const TRUST = [
+  { icon: UserX, label: "No accounts" },
+  { icon: ServerOff, label: "No server in the middle" },
+  { icon: Lock, label: "End-to-end encrypted" },
+  { icon: InfinityIcon, label: "Files of any size" },
+]
+
 export function Hero() {
   return (
-    <section className="relative overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-grid" aria-hidden="true" />
+    <section className="relative flex min-h-[calc(100svh-4rem)] items-center overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 grid-fade" aria-hidden="true">
+        <div className="absolute inset-0 bg-grid" />
+        <div className="absolute inset-0 grid-beam" />
+      </div>
       <div className="hero-glow" aria-hidden="true" />
-      <div className="relative mx-auto max-w-6xl px-4 pb-16 pt-20 sm:px-6 sm:pt-28">
+
+      <div className="relative mx-auto w-full max-w-5xl px-4 py-16 sm:px-6">
         <motion.div
-          className="mx-auto max-w-3xl text-center"
+          className="mx-auto max-w-4xl text-center"
           variants={container}
           initial="hidden"
           animate="show"
         >
           <motion.span
             variants={item}
-            className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground"
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-1 text-xs text-muted-foreground backdrop-blur"
           >
             <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-            No accounts · No storage · No server in the middle
+            Private by design · Nothing stored, anywhere
           </motion.span>
 
           <motion.h1
             variants={item}
-            className="mt-6 text-balance text-4xl font-semibold tracking-tight sm:text-6xl"
+            className="mt-6 text-balance text-5xl font-semibold leading-[1.05] tracking-tight sm:text-7xl"
           >
             Talk directly.
             <br />
@@ -45,10 +56,11 @@ export function Hero() {
 
           <motion.p
             variants={item}
-            className="mx-auto mt-6 max-w-xl text-pretty text-lg text-muted-foreground"
+            className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-muted-foreground sm:text-xl"
           >
-            Cove links two devices directly, browser to browser. Share a code, connect, and chat or
-            send files end-to-end encrypted — with nothing passing through, or stored on, any server.
+            Wisp links two devices directly, browser to browser. Share a code, connect, and chat,
+            call, or send files — end-to-end encrypted, with nothing passing through, or stored on,
+            any server.
           </motion.p>
 
           <motion.div
@@ -57,7 +69,7 @@ export function Hero() {
           >
             <Button asChild size="lg" className="w-full sm:w-auto">
               <Link href="/connect">
-                Start a private chat
+                Create a connection
                 <ArrowRight className="ml-1 h-4 w-4" />
               </Link>
             </Button>
@@ -66,13 +78,17 @@ export function Hero() {
             </Button>
           </motion.div>
 
-          <motion.p
+          <motion.ul
             variants={item}
-            className="mt-6 inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+            className="mx-auto mt-10 flex max-w-3xl flex-wrap items-center justify-center gap-x-6 gap-y-3 text-sm text-muted-foreground"
           >
-            <Lock className="h-3.5 w-3.5" />
-            Encrypted end-to-end by default
-          </motion.p>
+            {TRUST.map(({ icon: Icon, label }) => (
+              <li key={label} className="inline-flex items-center gap-2">
+                <Icon className="h-4 w-4 text-primary" />
+                {label}
+              </li>
+            ))}
+          </motion.ul>
         </motion.div>
       </div>
     </section>

@@ -36,30 +36,27 @@ const FEATURES = [
 
 export function Features() {
   return (
-    <section className="border-y border-border/70 bg-secondary/30">
-      <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-        <Reveal className="mx-auto max-w-2xl text-center">
+    <section>
+      <div className="mx-auto max-w-5xl px-4 py-20 sm:px-6">
+        <Reveal className="max-w-2xl">
           <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-            Built for privacy, by design
+            Private because the data never reaches us
           </h2>
           <p className="mt-4 text-pretty text-muted-foreground">
-            Cove is not "private because we promise". It is private because the data
-            physically never reaches us.
+            Not &quot;private because we promise&quot; — private by the way it is built.
           </p>
         </Reveal>
 
-        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-14 grid gap-x-12 gap-y-10 sm:grid-cols-2">
           {FEATURES.map((f, i) => (
-            <Reveal
-              key={f.title}
-              delay={(i % 3) * 0.08}
-              className="rounded-2xl border border-border bg-card p-6"
-            >
-              <span className="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary">
+            <Reveal key={f.title} delay={(i % 2) * 0.08} className="flex gap-4">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
                 <f.icon className="h-5 w-5" />
               </span>
-              <h3 className="mt-5 font-semibold">{f.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
+              <div>
+                <h3 className="font-semibold">{f.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
+              </div>
             </Reveal>
           ))}
         </div>

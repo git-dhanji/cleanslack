@@ -5,7 +5,7 @@ const STEPS = [
   {
     icon: KeyRound,
     title: "1 · Create a code",
-    body: "Open Cove and get a unique connection code — or type your own number. Nothing is registered anywhere.",
+    body: "Open Wisp and get a unique connection code — or type your own number. Nothing is registered anywhere.",
   },
   {
     icon: Share2,

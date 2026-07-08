@@ -25,6 +25,7 @@ export function ConnectPanel() {
     sendText,
     sendFile,
     sendActivity,
+    deleteItem,
     disconnect,
     callState,
     callVideo,
@@ -82,6 +83,7 @@ export function ConnectPanel() {
         onSend={sendText}
         onSendFile={sendFile}
         onActivity={sendActivity}
+        onDelete={deleteItem}
         onReconnect={reconnect}
         onDisconnect={disconnect}
       />

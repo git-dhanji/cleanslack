@@ -1,6 +1,6 @@
 import mongoose, { Schema, type Model } from "mongoose"
 
-// A reserved connection code. This is the ONLY thing Cove writes to the
+// A reserved connection code. This is the ONLY thing Wisp writes to the
 // database. It carries no user data — just the random code and when it was
 // reserved. A TTL index auto-deletes stale reservations after 2 hours, so the
 // collection cleans itself even if a peer never releases explicitly.

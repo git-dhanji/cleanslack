@@ -183,19 +183,45 @@
 .animation-delay-300 { animation-delay: 0.3s; }
 .animation-delay-400 { animation-delay: 0.4s; }
 
-/* Faint grid backdrop for hero sections — slowly drifts */
+/* Hero grid backdrop. A wrapper fades it toward the edges; inside sit two
+   layers — a faint static grid and a brighter "beam" grid whose lines light up
+   as a diagonal band sweeps across. */
+.grid-fade {
+  mask-image: radial-gradient(ellipse 75% 65% at 50% 0%, #000 35%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 0%, #000 35%, transparent 100%);
+}
+
 .bg-grid {
   background-image:
     linear-gradient(to right, var(--border) 1px, transparent 1px),
     linear-gradient(to bottom, var(--border) 1px, transparent 1px);
   background-size: 44px 44px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
   animation: grid-pan 32s linear infinite;
+}
+
+/* Same grid, drawn in the brand color, but only visible where a moving
+   diagonal band reveals it — the "grid lines animating" effect. */
+.grid-beam {
+  background-image:
+    linear-gradient(to right, var(--primary) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--primary) 1px, transparent 1px);
+  background-size: 44px 44px;
+  opacity: 0.6;
+  mask-image: linear-gradient(115deg, transparent 38%, #000 48%, #000 52%, transparent 62%);
+  -webkit-mask-image: linear-gradient(115deg, transparent 38%, #000 48%, #000 52%, transparent 62%);
+  mask-size: 220% 220%;
+  -webkit-mask-size: 220% 220%;
+  animation: grid-beam 7s linear infinite;
 }
 
 @keyframes grid-pan {
   from { background-position: 0 0; }
   to { background-position: 44px 44px; }
+}
+
+@keyframes grid-beam {
+  from { mask-position: 130% 130%; -webkit-mask-position: 130% 130%; }
+  to { mask-position: -30% -30%; -webkit-mask-position: -30% -30%; }
 }
 
 /* A soft, drifting glow of the brand color behind the hero */
@@ -236,7 +262,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .bg-grid,
+  .grid-beam,
   .hero-glow::before,
   .link-mark-line { animation: none; }
+  .grid-beam { display: none; }
   .link-mark-line { stroke-dasharray: none; }
 }

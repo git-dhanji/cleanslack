@@ -1,7 +1,7 @@
 // Robust clipboard copy that also works over plain HTTP / LAN IPs.
 //
 // navigator.clipboard is only available in a "secure context" (HTTPS or
-// localhost). When Cove is opened over a LAN address like http://192.168.x.x,
+// localhost). When Wisp is opened over a LAN address like http://192.168.x.x,
 // that API is missing or throws, so we fall back to the legacy execCommand copy.
 export async function copyText(text: string): Promise<boolean> {
   // Preferred path: async Clipboard API (secure contexts).
