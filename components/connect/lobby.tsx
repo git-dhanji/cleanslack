@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import { toast } from "sonner"
-import { Shuffle, ArrowRight, KeyRound, LogIn } from "lucide-react"
+import { Shuffle, ArrowRight, KeyRound, LogIn, Loader2 } from "lucide-react"
+import type { ConnectMode } from "@/hooks/use-peer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,20 +14,40 @@ function sanitize(v: string) {
   return v.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 64)
 }
 
-export function Lobby({ onConnect }: { onConnect: (code: string) => void }) {
+export function Lobby({
+  onConnect,
+}: {
+  onConnect: (code: string, mode: ConnectMode) => Promise<{ taken: boolean }>
+}) {
   const [createCode, setCreateCode] = useState(() => generateCode())
   const [joinCode, setJoinCode] = useState("")
+  const [busy, setBusy] = useState(false)
 
-  const submitCreate = () => {
+  const submitCreate = async () => {
     const code = sanitize(createCode)
     if (code.length < 3) return toast.error("Code must be at least 3 characters")
-    onConnect(code)
+    setBusy(true)
+    try {
+      const { taken } = await onConnect(code, "create")
+      if (taken) {
+        const fresh = generateCode()
+        setCreateCode(fresh)
+        toast.error("That code is already in use — here's a fresh one.")
+      }
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const submitJoin = () => {
+  const submitJoin = async () => {
     const code = sanitize(joinCode)
     if (code.length < 3) return toast.error("Enter the code you were given")
-    onConnect(code)
+    setBusy(true)
+    try {
+      await onConnect(code, "join")
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -58,6 +79,7 @@ export function Lobby({ onConnect }: { onConnect: (code: string) => void }) {
                   className="font-mono"
                   autoComplete="off"
                   spellCheck={false}
+                  disabled={busy}
                 />
                 <Button
                   type="button"
@@ -65,14 +87,16 @@ export function Lobby({ onConnect }: { onConnect: (code: string) => void }) {
                   size="icon"
                   aria-label="Generate a new code"
                   onClick={() => setCreateCode(generateCode())}
+                  disabled={busy}
                 >
                   <Shuffle className="h-4 w-4" />
                 </Button>
               </div>
             </div>
-            <Button className="mt-5 w-full" onClick={submitCreate}>
+            <Button className="mt-5 w-full" onClick={submitCreate} disabled={busy}>
+              {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
               Create & wait for peer
-              <ArrowRight className="ml-1 h-4 w-4" />
+              {!busy && <ArrowRight className="ml-1 h-4 w-4" />}
             </Button>
           </div>
         </TabsContent>
@@ -94,11 +118,13 @@ export function Lobby({ onConnect }: { onConnect: (code: string) => void }) {
                 className="font-mono"
                 autoComplete="off"
                 spellCheck={false}
+                disabled={busy}
               />
             </div>
-            <Button className="mt-5 w-full" onClick={submitJoin}>
+            <Button className="mt-5 w-full" onClick={submitJoin} disabled={busy}>
+              {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
               Connect
-              <ArrowRight className="ml-1 h-4 w-4" />
+              {!busy && <ArrowRight className="ml-1 h-4 w-4" />}
             </Button>
           </div>
         </TabsContent>

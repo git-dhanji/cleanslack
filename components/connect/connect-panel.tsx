@@ -18,7 +18,7 @@ export function ConnectPanel() {
     const invite = searchParams.get("code")
     if (invite && !autoJoined.current && status === "idle") {
       autoJoined.current = true
-      connect(invite)
+      void connect(invite, "join")
     }
   }, [searchParams, status, connect])
 

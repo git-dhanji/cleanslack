@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { PeerConnection, type PeerStatus } from "@/lib/webrtc"
+import { reserveCode, releaseCode } from "@/lib/codes"
+
+export type ConnectMode = "create" | "join"
 
 export type { PeerStatus }
 
@@ -45,6 +48,7 @@ function newId() {
 export function usePeer() {
   const peerRef = useRef<PeerConnection | null>(null)
   const incomingRef = useRef<IncomingFile | null>(null)
+  const reservedRef = useRef<string | null>(null) // code we reserved (release on exit)
   const [status, setStatus] = useState<PeerStatus>("idle")
   const [items, setItems] = useState<ChatItem[]>([])
   const [code, setCode] = useState("")
@@ -121,11 +125,8 @@ export function usePeer() {
     [patchItem],
   )
 
-  const connect = useCallback(
-    (rawCode: string) => {
-      const normalized = rawCode.trim().toLowerCase()
-      if (!normalized) return
-
+  const openPeer = useCallback(
+    (normalized: string) => {
       peerRef.current?.close()
       incomingRef.current = null
       setItems([])
@@ -140,6 +141,25 @@ export function usePeer() {
       peer.connect(normalized)
     },
     [handleControl, handleBinary],
+  )
+
+  // Connect to a code. In "create" mode we first reserve the code so two hosts
+  // can never collide; returns { taken: true } if someone already holds it.
+  const connect = useCallback(
+    async (rawCode: string, mode: ConnectMode = "join"): Promise<{ taken: boolean }> => {
+      const normalized = rawCode.trim().toLowerCase()
+      if (normalized.length < 3) return { taken: false }
+
+      if (mode === "create") {
+        const result = await reserveCode(normalized)
+        if (result.taken) return { taken: true }
+        reservedRef.current = normalized
+      }
+
+      openPeer(normalized)
+      return { taken: false }
+    },
+    [openPeer],
   )
 
   const sendText = useCallback(
@@ -185,13 +205,24 @@ export function usePeer() {
     peerRef.current?.close()
     peerRef.current = null
     incomingRef.current = null
+    if (reservedRef.current) {
+      releaseCode(reservedRef.current)
+      reservedRef.current = null
+    }
     setStatus("idle")
     setCode("")
     setItems([])
   }, [])
 
+  // Release any reserved code and tear down on unmount or tab close.
   useEffect(() => {
+    const release = () => {
+      if (reservedRef.current) releaseCode(reservedRef.current)
+    }
+    window.addEventListener("beforeunload", release)
     return () => {
+      window.removeEventListener("beforeunload", release)
+      release()
       peerRef.current?.close()
       peerRef.current = null
     }
