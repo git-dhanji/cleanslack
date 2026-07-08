@@ -4,6 +4,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { Reveal } from "@/components/motion/reveal"
 
 const FAQ = [
   {
@@ -35,11 +36,12 @@ const FAQ = [
 export function Faq() {
   return (
     <section className="mx-auto max-w-3xl px-4 py-20 sm:px-6">
-      <div className="text-center">
+      <Reveal className="text-center">
         <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
           Questions
         </h2>
-      </div>
+      </Reveal>
+      <Reveal delay={0.05}>
       <Accordion type="single" collapsible className="mt-10">
         {FAQ.map((item, i) => (
           <AccordionItem key={i} value={`item-${i}`}>
@@ -48,6 +50,7 @@ export function Faq() {
           </AccordionItem>
         ))}
       </Accordion>
+      </Reveal>
     </section>
   )
 }

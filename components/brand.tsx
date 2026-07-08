@@ -20,7 +20,13 @@ export function LinkMark({ className }: { className?: string }) {
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
       <circle cx="6" cy="12" r="2.4" fill="currentColor" />
       <circle cx="18" cy="12" r="2.4" fill="currentColor" />
-      <path d="M8.4 12h7.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path
+        d="M8.4 12h7.2"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        className="link-mark-line"
+      />
     </svg>
   )
 }

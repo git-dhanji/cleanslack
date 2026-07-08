@@ -183,11 +183,60 @@
 .animation-delay-300 { animation-delay: 0.3s; }
 .animation-delay-400 { animation-delay: 0.4s; }
 
-/* Faint grid backdrop for hero sections */
+/* Faint grid backdrop for hero sections — slowly drifts */
 .bg-grid {
   background-image:
     linear-gradient(to right, var(--border) 1px, transparent 1px),
     linear-gradient(to bottom, var(--border) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
+  animation: grid-pan 32s linear infinite;
+}
+
+@keyframes grid-pan {
+  from { background-position: 0 0; }
+  to { background-position: 44px 44px; }
+}
+
+/* A soft, drifting glow of the brand color behind the hero */
+.hero-glow {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.hero-glow::before {
+  content: "";
+  position: absolute;
+  top: -20%;
+  left: 50%;
+  height: 520px;
+  width: 520px;
+  translate: -50% 0;
+  border-radius: 9999px;
+  background: radial-gradient(circle, color-mix(in oklch, var(--primary) 30%, transparent), transparent 60%);
+  filter: blur(60px);
+  opacity: 0.55;
+  animation: glow-drift 14s ease-in-out infinite;
+}
+
+@keyframes glow-drift {
+  0%, 100% { transform: translate(-8%, 0) scale(1); opacity: 0.45; }
+  50% { transform: translate(8%, 4%) scale(1.12); opacity: 0.65; }
+}
+
+/* Flowing "data pulse" along the brand mark's connecting line */
+.link-mark-line {
+  stroke-dasharray: 3 5;
+  animation: link-flow 2.4s linear infinite;
+}
+@keyframes link-flow {
+  to { stroke-dashoffset: -16; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-grid,
+  .hero-glow::before,
+  .link-mark-line { animation: none; }
+  .link-mark-line { stroke-dasharray: none; }
 }

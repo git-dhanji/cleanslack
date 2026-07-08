@@ -1,4 +1,5 @@
 import { Lock, ServerOff, FileUp, EyeOff, Gauge, UserX } from "lucide-react"
+import { Reveal } from "@/components/motion/reveal"
 
 const FEATURES = [
   {
@@ -37,7 +38,7 @@ export function Features() {
   return (
     <section className="border-y border-border/70 bg-secondary/30">
       <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-        <div className="mx-auto max-w-2xl text-center">
+        <Reveal className="mx-auto max-w-2xl text-center">
           <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
             Built for privacy, by design
           </h2>
@@ -45,17 +46,21 @@ export function Features() {
             Cove is not "private because we promise". It is private because the data
             physically never reaches us.
           </p>
-        </div>
+        </Reveal>
 
         <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="rounded-2xl border border-border bg-card p-6">
+          {FEATURES.map((f, i) => (
+            <Reveal
+              key={f.title}
+              delay={(i % 3) * 0.08}
+              className="rounded-2xl border border-border bg-card p-6"
+            >
               <span className="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary">
                 <f.icon className="h-5 w-5" />
               </span>
               <h3 className="mt-5 font-semibold">{f.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
-            </div>
+            </Reveal>
           ))}
         </div>
       </div>
