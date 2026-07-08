@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Send, LogOut, ShieldCheck, Paperclip, Loader2, WifiOff } from "lucide-react"
+import { Send, LogOut, ShieldCheck, Paperclip, Loader2, WifiOff, RotateCcw } from "lucide-react"
 import type { ChatItem, PeerStatus } from "@/hooks/use-peer"
 import { LinkMark } from "@/components/brand"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -29,10 +29,19 @@ interface ChatRoomProps {
   items: ChatItem[]
   onSend: (text: string) => void
   onSendFile: (file: File) => void
+  onReconnect: () => Promise<{ taken: boolean }>
   onDisconnect: () => void
 }
 
-export function ChatRoom({ code, status, items, onSend, onSendFile, onDisconnect }: ChatRoomProps) {
+export function ChatRoom({
+  code,
+  status,
+  items,
+  onSend,
+  onSendFile,
+  onReconnect,
+  onDisconnect,
+}: ChatRoomProps) {
   const [draft, setDraft] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -82,7 +91,7 @@ export function ChatRoom({ code, status, items, onSend, onSendFile, onDisconnect
       {status === "connecting" ? (
         <ConnectingState />
       ) : ended ? (
-        <EndedState status={status} onLeave={onDisconnect} />
+        <EndedState status={status} onLeave={onDisconnect} onReconnect={onReconnect} />
       ) : (
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl space-y-3 px-4 py-5">
@@ -229,8 +238,27 @@ function ConnectingState() {
   )
 }
 
-function EndedState({ status, onLeave }: { status: PeerStatus; onLeave: () => void }) {
+function EndedState({
+  status,
+  onLeave,
+  onReconnect,
+}: {
+  status: PeerStatus
+  onLeave: () => void
+  onReconnect: () => Promise<{ taken: boolean }>
+}) {
   const failed = status === "failed"
+  const [busy, setBusy] = useState(false)
+
+  const retry = async () => {
+    setBusy(true)
+    try {
+      await onReconnect()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
       <span className="grid h-14 w-14 place-items-center rounded-2xl bg-muted text-muted-foreground">
@@ -244,7 +272,15 @@ function EndedState({ status, onLeave }: { status: PeerStatus; onLeave: () => vo
             : "The other person left, or the link dropped. Nothing was saved."}
         </p>
       </div>
-      <Button onClick={onLeave}>Back to start</Button>
+      <div className="flex gap-2">
+        <Button onClick={retry} disabled={busy}>
+          {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-1 h-4 w-4" />}
+          Reconnect
+        </Button>
+        <Button variant="outline" onClick={onLeave} disabled={busy}>
+          Back to start
+        </Button>
+      </div>
     </div>
   )
 }

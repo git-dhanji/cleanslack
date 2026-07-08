@@ -45,6 +45,47 @@ function newId() {
     : Math.random().toString(36).slice(2)
 }
 
+// Remember the last successful connection so a returning user can rejoin without
+// retyping the code. Only the code + role are kept, locally, for 24h.
+const LAST_KEY = "cove:last"
+const LAST_TTL = 24 * 60 * 60 * 1000
+
+export interface LastSession {
+  code: string
+  mode: ConnectMode
+}
+
+function readLast(): LastSession | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = window.localStorage.getItem(LAST_KEY)
+    if (!raw) return null
+    const p = JSON.parse(raw)
+    if (!p?.code || !p?.ts || Date.now() - p.ts > LAST_TTL) return null
+    return { code: String(p.code), mode: p.mode === "create" ? "create" : "join" }
+  } catch {
+    return null
+  }
+}
+
+function writeLast(s: LastSession) {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(LAST_KEY, JSON.stringify({ ...s, ts: Date.now() }))
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearLast() {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.removeItem(LAST_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 export function usePeer() {
   const peerRef = useRef<PeerConnection | null>(null)
   const incomingRef = useRef<IncomingFile | null>(null)
@@ -52,6 +93,12 @@ export function usePeer() {
   const [status, setStatus] = useState<PeerStatus>("idle")
   const [items, setItems] = useState<ChatItem[]>([])
   const [code, setCode] = useState("")
+  const [lastSession, setLastSession] = useState<LastSession | null>(null)
+
+  // Load the remembered session (if any) once on mount.
+  useEffect(() => {
+    setLastSession(readLast())
+  }, [])
 
   const addItem = useCallback((item: ChatItem) => {
     setItems((prev) => [...prev, item])
@@ -156,11 +203,29 @@ export function usePeer() {
         reservedRef.current = normalized
       }
 
+      const session: LastSession = { code: normalized, mode }
+      writeLast(session)
+      setLastSession(session)
+
       openPeer(normalized)
       return { taken: false }
     },
     [openPeer],
   )
+
+  // Rejoin the last connection. Falls back to joining if a re-reserve collides.
+  const reconnect = useCallback(async (): Promise<{ taken: boolean }> => {
+    const last = readLast()
+    if (!last) return { taken: false }
+    const result = await connect(last.code, last.mode)
+    if (result.taken) return connect(last.code, "join")
+    return result
+  }, [connect])
+
+  const forgetLastSession = useCallback(() => {
+    clearLast()
+    setLastSession(null)
+  }, [])
 
   const sendText = useCallback(
     (text: string) => {
@@ -228,5 +293,16 @@ export function usePeer() {
     }
   }, [])
 
-  return { status, items, code, connect, sendText, sendFile, disconnect }
+  return {
+    status,
+    items,
+    code,
+    lastSession,
+    connect,
+    reconnect,
+    forgetLastSession,
+    sendText,
+    sendFile,
+    disconnect,
+  }
 }

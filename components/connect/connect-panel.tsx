@@ -13,7 +13,18 @@ import { WaitingPanel } from "./waiting-panel"
 import { ChatRoom } from "./chat-room"
 
 export function ConnectPanel() {
-  const { status, items, code, connect, sendText, sendFile, disconnect } = usePeer()
+  const {
+    status,
+    items,
+    code,
+    lastSession,
+    connect,
+    reconnect,
+    forgetLastSession,
+    sendText,
+    sendFile,
+    disconnect,
+  } = usePeer()
   const searchParams = useSearchParams()
   const autoJoined = useRef(false)
 
@@ -41,6 +52,7 @@ export function ConnectPanel() {
         items={items}
         onSend={sendText}
         onSendFile={sendFile}
+        onReconnect={reconnect}
         onDisconnect={disconnect}
       />
     )
@@ -70,7 +82,12 @@ export function ConnectPanel() {
             <p className="text-sm">Joining…</p>
           </div>
         ) : (
-          <Lobby onConnect={connect} />
+          <Lobby
+            onConnect={connect}
+            lastSession={lastSession}
+            onReconnect={reconnect}
+            onForgetLast={forgetLastSession}
+          />
         )}
       </main>
     </div>

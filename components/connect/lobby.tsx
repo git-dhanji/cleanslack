@@ -2,8 +2,8 @@
 
 import { useState } from "react"
 import { toast } from "sonner"
-import { Shuffle, ArrowRight, KeyRound, LogIn, Loader2 } from "lucide-react"
-import type { ConnectMode } from "@/hooks/use-peer"
+import { Shuffle, ArrowRight, KeyRound, LogIn, Loader2, RotateCcw, X } from "lucide-react"
+import type { ConnectMode, LastSession } from "@/hooks/use-peer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,12 +16,27 @@ function sanitize(v: string) {
 
 export function Lobby({
   onConnect,
+  lastSession,
+  onReconnect,
+  onForgetLast,
 }: {
   onConnect: (code: string, mode: ConnectMode) => Promise<{ taken: boolean }>
+  lastSession: LastSession | null
+  onReconnect: () => Promise<{ taken: boolean }>
+  onForgetLast: () => void
 }) {
   const [createCode, setCreateCode] = useState(() => generateCode())
   const [joinCode, setJoinCode] = useState("")
   const [busy, setBusy] = useState(false)
+
+  const reconnect = async () => {
+    setBusy(true)
+    try {
+      await onReconnect()
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const submitCreate = async () => {
     const code = sanitize(createCode)
@@ -52,6 +67,31 @@ export function Lobby({
 
   return (
     <div className="mx-auto w-full max-w-md">
+      {lastSession && (
+        <div className="mb-4 flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/5 p-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+            <RotateCcw className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Reconnect</p>
+            <p className="truncate font-mono text-xs text-muted-foreground">{lastSession.code}</p>
+          </div>
+          <Button size="sm" onClick={reconnect} disabled={busy}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resume"}
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8 shrink-0 text-muted-foreground"
+            aria-label="Forget last connection"
+            onClick={onForgetLast}
+            disabled={busy}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+
       <Tabs defaultValue="create">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="create">
