@@ -4,6 +4,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { Copy, Check, Link2, X, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { copyText } from "@/lib/clipboard"
 
 export function WaitingPanel({ code, onCancel }: { code: string; onCancel: () => void }) {
   const [copied, setCopied] = useState<"code" | "link" | null>(null)
@@ -12,13 +13,13 @@ export function WaitingPanel({ code, onCancel }: { code: string; onCancel: () =>
     (typeof window !== "undefined" ? window.location.origin : "") + `/connect?code=${encodeURIComponent(code)}`
 
   const copy = async (value: string, which: "code" | "link") => {
-    try {
-      await navigator.clipboard.writeText(value)
+    const ok = await copyText(value)
+    if (ok) {
       setCopied(which)
       toast.success(which === "code" ? "Code copied" : "Invite link copied")
       setTimeout(() => setCopied(null), 1500)
-    } catch {
-      toast.error("Could not copy")
+    } else {
+      toast.error("Couldn't copy — select the text and copy manually")
     }
   }
 
@@ -35,7 +36,7 @@ export function WaitingPanel({ code, onCancel }: { code: string; onCancel: () =>
 
         <div className="mt-6 rounded-xl border border-border bg-secondary/40 p-4">
           <span className="text-xs uppercase tracking-wider text-muted-foreground">Your code</span>
-          <div className="mt-1 font-mono text-2xl font-semibold tracking-tight">{code}</div>
+          <div className="mt-1 select-all font-mono text-2xl font-semibold tracking-tight">{code}</div>
         </div>
 
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
