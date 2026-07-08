@@ -103,6 +103,7 @@ export function usePeer() {
   const [code, setCode] = useState("")
   const [lastSession, setLastSession] = useState<LastSession | null>(null)
   const [peerActivity, setPeerActivity] = useState<PeerActivity>("idle")
+  const [safety, setSafety] = useState<string | null>(null)
 
   // Voice/video call state.
   const [callState, setCallState] = useState<CallState>("idle")
@@ -222,6 +223,7 @@ export function usePeer() {
       incomingRef.current = null
       setItems([])
       setPeerActivity("idle")
+      setSafety(null)
       resetCall()
       setCode(normalized)
 
@@ -229,6 +231,7 @@ export function usePeer() {
         onStatus: setStatus,
         onControl: handleControl,
         onBinary: handleBinary,
+        onSafety: setSafety,
         onCallState: (state, meta) => {
           setCallState(state)
           setCallVideo(meta.video)
@@ -378,6 +381,7 @@ export function usePeer() {
     setCode("")
     setItems([])
     setPeerActivity("idle")
+    setSafety(null)
     resetCall()
   }, [resetCall])
 
@@ -401,6 +405,7 @@ export function usePeer() {
     code,
     lastSession,
     peerActivity,
+    safety,
     connect,
     reconnect,
     forgetLastSession,

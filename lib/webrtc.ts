@@ -10,6 +10,7 @@
 // is out of the loop and all data flows straight between the two peers.
 
 import type { ServerEvent, SignalRole } from "./signaling-types"
+import { deriveSafety } from "./safety"
 
 export type PeerStatus =
   | "idle"
@@ -34,6 +35,8 @@ export interface PeerHandlers {
   onCallState?: (state: CallState, meta: CallMeta) => void
   onLocalStream?: (stream: MediaStream | null) => void
   onRemoteStream?: (stream: MediaStream | null) => void
+  // Emoji safety string to compare out-of-band; null until the link is verified.
+  onSafety?: (sas: string | null) => void
   onError?: (message: string) => void
 }
 
@@ -237,6 +240,9 @@ export class PeerConnection {
       this.setStatus("connected")
       // Server's job is done — step it out of the loop entirely.
       this.closeSignaling()
+      // Derive the emoji safety string from both DTLS fingerprints so the two
+      // people can confirm no one slipped in between.
+      void this.emitSafety()
     }
     channel.onclose = () => {
       if (!this.closedByUser) this.setStatus("disconnected")
@@ -276,6 +282,18 @@ export class PeerConnection {
   private closeSignaling() {
     this.events?.close()
     this.events = null
+  }
+
+  // Compute the shared emoji safety string from the negotiated fingerprints.
+  private async emitSafety() {
+    const local = this.pc?.localDescription?.sdp
+    const remote = this.pc?.remoteDescription?.sdp
+    if (!local || !remote) return
+    try {
+      this.handlers.onSafety?.(await deriveSafety(local, remote))
+    } catch {
+      /* fingerprints unavailable — leave unverified */
+    }
   }
 
   // ---- Application-facing send helpers ----
@@ -523,6 +541,7 @@ export class PeerConnection {
     }
     this.channel = null
     this.pc = null
+    this.handlers.onSafety?.(null)
     this.setStatus("disconnected")
   }
 }
@@ -537,8 +556,25 @@ const NOUNS = [
   "willow", "ember", "pixel", "cobalt", "summit", "orbit", "quartz", "raven",
 ]
 
+// Cryptographically-strong random in [0, max). Falls back to Math.random only
+// where WebCrypto is unavailable (it isn't, in any browser we target).
+function secureInt(max: number): number {
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    // Rejection-sample to avoid modulo bias.
+    const limit = Math.floor(0xffffffff / max) * max
+    const buf = new Uint32Array(1)
+    let x = 0
+    do {
+      crypto.getRandomValues(buf)
+      x = buf[0]
+    } while (x >= limit)
+    return x % max
+  }
+  return Math.floor(Math.random() * max)
+}
+
 export function generateCode(): string {
-  const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)]
-  const num = Math.floor(1000 + Math.random() * 9000)
+  const pick = <T,>(arr: T[]) => arr[secureInt(arr.length)]
+  const num = 1000 + secureInt(9000)
   return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${num}`
 }

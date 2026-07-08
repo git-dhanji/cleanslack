@@ -19,6 +19,7 @@ export function ConnectPanel() {
     code,
     lastSession,
     peerActivity,
+    safety,
     connect,
     reconnect,
     forgetLastSession,
@@ -66,6 +67,7 @@ export function ConnectPanel() {
         status={status}
         items={items}
         peerActivity={peerActivity}
+        safety={safety}
         call={{
           state: callState,
           video: callVideo,

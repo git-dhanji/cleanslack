@@ -52,6 +52,7 @@ interface ChatRoomProps {
   status: PeerStatus
   items: ChatItem[]
   peerActivity: PeerActivity
+  safety: string | null
   call: CallProps
   onSend: (text: string) => void
   onSendFile: (file: File) => void
@@ -66,6 +67,7 @@ export function ChatRoom({
   status,
   items,
   peerActivity,
+  safety,
   call,
   onSend,
   onSendFile,
@@ -210,10 +212,7 @@ export function ChatRoom({
       ) : (
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl space-y-3 px-4 py-5">
-            <div className="mx-auto mb-2 flex w-fit items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-3 py-1 text-xs text-muted-foreground">
-              <ShieldCheck className="h-3.5 w-3.5 text-success" />
-              End-to-end encrypted · nothing is stored
-            </div>
+            <SafetyChip safety={safety} />
 
             {items.length === 0 && (
               <p className="pt-12 text-center text-sm text-muted-foreground">
@@ -383,6 +382,44 @@ function LeaveButton({ onConfirm, ended }: { onConfirm: () => void; ended: boole
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+// Shows the emoji safety string once the link is verified. Tapping it explains
+// what to do — compare the emoji on both devices to be sure no one is in between.
+function SafetyChip({ safety }: { safety: string | null }) {
+  const [open, setOpen] = useState(false)
+
+  if (!safety) {
+    return (
+      <div className="mx-auto mb-2 flex w-fit items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-3 py-1 text-xs text-muted-foreground">
+        <ShieldCheck className="h-3.5 w-3.5 text-success" />
+        End-to-end encrypted · nothing is stored
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-auto mb-2 flex w-fit max-w-full flex-col items-center gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 rounded-full border border-success/40 bg-success/10 px-3 py-1 text-xs transition-colors hover:bg-success/15"
+        aria-expanded={open}
+      >
+        <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-success" />
+        <span className="text-muted-foreground">Verify</span>
+        <span className="text-sm tracking-[0.2em]" aria-label={`Safety emoji ${safety}`}>
+          {safety}
+        </span>
+      </button>
+      {open && (
+        <p className="max-w-xs text-balance text-center text-[11px] leading-relaxed text-muted-foreground">
+          Both devices should show these same emoji. If they match, your line is private
+          end-to-end — no one slipped in between. If they differ, don&apos;t trust it and leave.
+        </p>
+      )}
+    </div>
   )
 }
 

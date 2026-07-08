@@ -16,7 +16,13 @@ const nextConfig = {
           { key: "X-Frame-Options", value: "DENY" },
           // Never leak the URL (which may carry a connection code) to third parties.
           { key: "Referrer-Policy", value: "no-referrer" },
-          { key: "Permissions-Policy", value: "geolocation=(), microphone=(), camera=()" },
+          // Voice/video calls need mic & camera from OUR OWN origin. An empty
+          // allowlist `microphone=()` would block getUserMedia everywhere,
+          // including this site — so scope it to `self`, deny all others.
+          {
+            key: "Permissions-Policy",
+            value: "geolocation=(), microphone=(self), camera=(self), display-capture=(self)",
+          },
         ],
       },
       {
