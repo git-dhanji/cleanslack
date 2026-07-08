@@ -6,6 +6,10 @@ import { reserveCode, releaseCode } from "@/lib/codes"
 
 export type ConnectMode = "create" | "join"
 
+// typing = actively producing text; present = focused on the box but paused;
+// idle = not composing at all.
+export type PeerActivity = "typing" | "present" | "idle"
+
 export type { PeerStatus }
 
 export interface TextMessage {
@@ -95,6 +99,12 @@ export function usePeer() {
   const [items, setItems] = useState<ChatItem[]>([])
   const [code, setCode] = useState("")
   const [lastSession, setLastSession] = useState<LastSession | null>(null)
+  const [peerActivity, setPeerActivity] = useState<PeerActivity>("idle")
+
+  // Tell the peer what we're doing in the composer (typing / paused / idle).
+  const sendActivity = useCallback((state: PeerActivity) => {
+    peerRef.current?.sendControl({ k: "activity", state })
+  }, [])
 
   // Load the remembered session (if any) once on mount.
   useEffect(() => {
@@ -116,6 +126,7 @@ export function usePeer() {
       switch (msg.k) {
         case "msg":
           if (typeof msg.text === "string") {
+            setPeerActivity("idle") // they just sent — no longer typing
             addItem({
               id: newId(),
               kind: "text",
@@ -123,6 +134,11 @@ export function usePeer() {
               mine: false,
               ts: typeof msg.ts === "number" ? msg.ts : Date.now(),
             })
+          }
+          break
+        case "activity":
+          if (msg.state === "typing" || msg.state === "present" || msg.state === "idle") {
+            setPeerActivity(msg.state)
           }
           break
         case "file-start":
@@ -178,6 +194,7 @@ export function usePeer() {
       peerRef.current?.close()
       incomingRef.current = null
       setItems([])
+      setPeerActivity("idle")
       setCode(normalized)
 
       const peer = new PeerConnection({
@@ -291,6 +308,7 @@ export function usePeer() {
     setStatus("idle")
     setCode("")
     setItems([])
+    setPeerActivity("idle")
   }, [])
 
   // Release any reserved code and tear down on unmount or tab close.
@@ -312,11 +330,13 @@ export function usePeer() {
     items,
     code,
     lastSession,
+    peerActivity,
     connect,
     reconnect,
     forgetLastSession,
     sendText,
     sendFile,
+    sendActivity,
     disconnect,
   }
 }

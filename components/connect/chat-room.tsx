@@ -3,13 +3,14 @@
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Send, LogOut, ShieldCheck, Paperclip, Loader2, WifiOff, RotateCcw } from "lucide-react"
-import type { ChatItem, PeerStatus } from "@/hooks/use-peer"
+import type { ChatItem, PeerStatus, PeerActivity } from "@/hooks/use-peer"
 import { LinkMark } from "@/components/brand"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { StatusBadge } from "./status-badge"
 import { FileBubble } from "./file-bubble"
 import { EmojiPicker } from "./emoji-picker"
 import { MessageText } from "./message-text"
+import { TypingIndicator } from "./typing-indicator"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -29,8 +30,10 @@ interface ChatRoomProps {
   code: string
   status: PeerStatus
   items: ChatItem[]
+  peerActivity: PeerActivity
   onSend: (text: string) => void
   onSendFile: (file: File) => void
+  onActivity: (state: PeerActivity) => void
   onReconnect: () => Promise<{ taken: boolean }>
   onDisconnect: () => void
 }
@@ -39,8 +42,10 @@ export function ChatRoom({
   code,
   status,
   items,
+  peerActivity,
   onSend,
   onSendFile,
+  onActivity,
   onReconnect,
   onDisconnect,
 }: ChatRoomProps) {
@@ -48,8 +53,34 @@ export function ChatRoom({
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const activityRef = useRef<PeerActivity>("idle")
+  const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const connected = status === "connected"
   const ended = status === "disconnected" || status === "failed"
+
+  // Broadcast our own composer activity, de-duplicated so we only send on change.
+  const setActivity = (state: PeerActivity) => {
+    if (activityRef.current === state) return
+    activityRef.current = state
+    onActivity(state)
+  }
+
+  // Called on every keystroke: "typing" now, then "present" after a short pause.
+  const notifyTyping = (value: string) => {
+    if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current)
+    if (value.trim()) {
+      setActivity("typing")
+      pauseTimerRef.current = setTimeout(() => setActivity("present"), 1200)
+    } else {
+      setActivity("present") // focused but nothing written
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current)
+    }
+  }, [])
 
   const insertEmoji = (emoji: string) => {
     const el = textareaRef.current
@@ -59,7 +90,9 @@ export function ChatRoom({
     }
     const start = el.selectionStart ?? draft.length
     const end = el.selectionEnd ?? draft.length
-    setDraft(draft.slice(0, start) + emoji + draft.slice(end))
+    const next = draft.slice(0, start) + emoji + draft.slice(end)
+    setDraft(next)
+    notifyTyping(next)
     requestAnimationFrame(() => {
       el.focus()
       const pos = start + emoji.length
@@ -75,6 +108,8 @@ export function ChatRoom({
     if (!draft.trim()) return
     onSend(draft)
     setDraft("")
+    if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current)
+    setActivity("present") // still focused after sending, just not typing
   }
 
   const pickFiles = (fileList: FileList | null) => {
@@ -159,7 +194,10 @@ export function ChatRoom({
       {/* Composer */}
       {!ended && (
         <div className="border-t border-border/70 bg-card/40 backdrop-blur">
-          <div className="mx-auto flex max-w-3xl items-end gap-2 px-4 py-3">
+          <div className="mx-auto max-w-3xl px-4 pt-1.5">
+            <TypingIndicator activity={connected ? peerActivity : "idle"} />
+          </div>
+          <div className="mx-auto flex max-w-3xl items-end gap-2 px-4 pb-3">
             <input
               ref={fileInputRef}
               type="file"
@@ -184,7 +222,15 @@ export function ChatRoom({
             <Textarea
               ref={textareaRef}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value)
+                notifyTyping(e.target.value)
+              }}
+              onFocus={() => setActivity(draft.trim() ? "typing" : "present")}
+              onBlur={() => {
+                if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current)
+                setActivity("idle")
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault()

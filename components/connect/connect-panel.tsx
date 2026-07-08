@@ -18,11 +18,13 @@ export function ConnectPanel() {
     items,
     code,
     lastSession,
+    peerActivity,
     connect,
     reconnect,
     forgetLastSession,
     sendText,
     sendFile,
+    sendActivity,
     disconnect,
   } = usePeer()
   const searchParams = useSearchParams()
@@ -50,8 +52,10 @@ export function ConnectPanel() {
         code={code}
         status={status}
         items={items}
+        peerActivity={peerActivity}
         onSend={sendText}
         onSendFile={sendFile}
+        onActivity={sendActivity}
         onReconnect={reconnect}
         onDisconnect={disconnect}
       />
