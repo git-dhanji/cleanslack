@@ -19,6 +19,7 @@ export function FileBubble({ file }: { file: FileMessage }) {
   const done = file.status === "complete"
   const error = file.status === "error"
   const pct = Math.round(file.progress * 100)
+  const isImage = file.mime.startsWith("image/") && !!file.url
 
   return (
     <div
@@ -29,6 +30,18 @@ export function FileBubble({ file }: { file: FileMessage }) {
           : "rounded-bl-sm bg-secondary text-secondary-foreground",
       )}
     >
+      {/* Inline preview for images and animated GIFs. */}
+      {isImage && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <a href={file.url} download={file.name} className="mb-3 block">
+          <img
+            src={file.url}
+            alt={file.name}
+            className="max-h-64 w-full rounded-lg object-cover"
+          />
+        </a>
+      )}
+
       <div className="flex items-center gap-3">
         <span
           className={cn(

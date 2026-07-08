@@ -10,6 +10,7 @@
 // is out of the loop and all data flows straight between the two peers.
 
 import type { ServerEvent, SignalRole } from "./signaling-types"
+import { deriveSafety } from "./safety"
 
 export type PeerStatus =
   | "idle"
@@ -20,10 +21,22 @@ export type PeerStatus =
   | "failed"
   | "full" // code already used by two people
 
+// Call state for voice/video. All call setup is signaled over the data channel
+// (never the server) via a manual renegotiation, so calls add zero server load.
+export type CallState = "idle" | "calling" | "incoming" | "active"
+export interface CallMeta {
+  video: boolean
+}
+
 export interface PeerHandlers {
   onStatus?: (status: PeerStatus) => void
   onControl?: (msg: Record<string, unknown>) => void // JSON control/text frames
   onBinary?: (chunk: ArrayBuffer) => void // binary file chunks
+  onCallState?: (state: CallState, meta: CallMeta) => void
+  onLocalStream?: (stream: MediaStream | null) => void
+  onRemoteStream?: (stream: MediaStream | null) => void
+  // Emoji safety string to compare out-of-band; null until the link is verified.
+  onSafety?: (sas: string | null) => void
   onError?: (message: string) => void
 }
 
@@ -51,6 +64,20 @@ export class PeerConnection {
   private code = ""
   private status: PeerStatus = "idle"
   private closedByUser = false
+  // Serialize remote-signal handling so an ICE candidate can never be processed
+  // before the SDP it belongs to. Candidates that still arrive early are buffered.
+  private signalChain: Promise<void> = Promise.resolve()
+  private remoteReady = false
+  private pendingCandidates: RTCIceCandidateInit[] = []
+  // Voice/video call state (renegotiated over the data channel).
+  private localStream: MediaStream | null = null
+  private remoteStream: MediaStream | null = null
+  private callState: CallState = "idle"
+  private callMeta: CallMeta = { video: false }
+  private callSenders: RTCRtpSender[] = []
+  private callChain: Promise<void> = Promise.resolve()
+  private callRemoteReady = false
+  private pendingCallCandidates: RTCIceCandidateInit[] = []
 
   constructor(private handlers: PeerHandlers) {
     this.peerId =
@@ -105,13 +132,27 @@ export class PeerConnection {
     this.pc = pc
 
     pc.onicecandidate = (e) => {
-      if (e.candidate) this.postSignal({ candidate: e.candidate })
+      if (!e.candidate) return
+      // Before the direct link exists, candidates go via the server. Once the
+      // data channel is open (e.g. during a call renegotiation), they go P2P.
+      if (this.isOpen()) {
+        this.channel!.send(JSON.stringify({ k: "call-ice", candidate: e.candidate }))
+      } else {
+        this.postSignal({ candidate: e.candidate })
+      }
     }
 
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState
       if (s === "failed") this.setStatus("failed")
       else if (s === "disconnected" && !this.closedByUser) this.setStatus("disconnected")
+    }
+
+    // Remote media arriving during a call.
+    pc.ontrack = (e) => {
+      if (!this.remoteStream) this.remoteStream = new MediaStream()
+      this.remoteStream.addTrack(e.track)
+      this.handlers.onRemoteStream?.(this.remoteStream)
     }
 
     // Guest receives the channel the host creates.
@@ -141,7 +182,8 @@ export class PeerConnection {
         this.closeSignaling()
         break
       case "signal":
-        void this.onRemoteSignal(event.data)
+        // Chain so each signal fully applies before the next one starts.
+        this.signalChain = this.signalChain.then(() => this.onRemoteSignal(event.data))
         break
       case "ping":
         break
@@ -151,7 +193,7 @@ export class PeerConnection {
   private async makeOffer() {
     const pc = this.pc
     if (!pc) return
-    const channel = pc.createDataChannel("cove", { ordered: true })
+    const channel = pc.createDataChannel("wisp", { ordered: true })
     this.setupChannel(channel)
     const offer = await pc.createOffer()
     await pc.setLocalDescription(offer)
@@ -171,8 +213,19 @@ export class PeerConnection {
           await pc.setLocalDescription(answer)
           this.postSignal({ sdp: pc.localDescription })
         }
+        // Remote description is set — drain any candidates that arrived early.
+        this.remoteReady = true
+        const buffered = this.pendingCandidates.splice(0)
+        for (const candidate of buffered) {
+          await pc.addIceCandidate(candidate).catch(() => {})
+        }
       } else if (payload.candidate) {
-        await pc.addIceCandidate(payload.candidate)
+        if (this.remoteReady) {
+          await pc.addIceCandidate(payload.candidate)
+        } else {
+          // No remote description yet — hold the candidate until there is one.
+          this.pendingCandidates.push(payload.candidate)
+        }
       }
     } catch (err) {
       this.handlers.onError?.(err instanceof Error ? err.message : "handshake error")
@@ -187,16 +240,27 @@ export class PeerConnection {
       this.setStatus("connected")
       // Server's job is done — step it out of the loop entirely.
       this.closeSignaling()
+      // Derive the emoji safety string from both DTLS fingerprints so the two
+      // people can confirm no one slipped in between.
+      void this.emitSafety()
     }
     channel.onclose = () => {
       if (!this.closedByUser) this.setStatus("disconnected")
     }
     channel.onmessage = (e) => {
       if (typeof e.data === "string") {
+        let msg: Record<string, unknown>
         try {
-          this.handlers.onControl?.(JSON.parse(e.data))
+          msg = JSON.parse(e.data)
         } catch {
-          /* ignore malformed control frame */
+          return // ignore malformed control frame
+        }
+        // Call-signaling frames are handled internally; everything else
+        // (chat, files, typing) goes to the app.
+        if (typeof msg.k === "string" && msg.k.startsWith("call-")) {
+          this.callChain = this.callChain.then(() => this.handleCallControl(msg))
+        } else {
+          this.handlers.onControl?.(msg)
         }
       } else if (e.data instanceof ArrayBuffer) {
         this.handlers.onBinary?.(e.data)
@@ -218,6 +282,18 @@ export class PeerConnection {
   private closeSignaling() {
     this.events?.close()
     this.events = null
+  }
+
+  // Compute the shared emoji safety string from the negotiated fingerprints.
+  private async emitSafety() {
+    const local = this.pc?.localDescription?.sdp
+    const remote = this.pc?.remoteDescription?.sdp
+    if (!local || !remote) return
+    try {
+      this.handlers.onSafety?.(await deriveSafety(local, remote))
+    } catch {
+      /* fingerprints unavailable — leave unverified */
+    }
   }
 
   // ---- Application-facing send helpers ----
@@ -292,8 +368,166 @@ export class PeerConnection {
     this.sendControl({ k: "file-end", id })
   }
 
+  // ---- Voice / video calls (all signaling flows over the data channel) ----
+
+  private sendCall(obj: Record<string, unknown>) {
+    if (this.isOpen()) this.channel!.send(JSON.stringify(obj))
+  }
+
+  private setCallState(state: CallState) {
+    this.callState = state
+    this.handlers.onCallState?.(state, this.callMeta)
+  }
+
+  private async getMedia(video: boolean): Promise<MediaStream> {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Camera/microphone need HTTPS or localhost")
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video })
+    this.localStream = stream
+    this.handlers.onLocalStream?.(stream)
+    return stream
+  }
+
+  private addLocalTracks() {
+    const pc = this.pc
+    if (!pc || !this.localStream || this.callSenders.length) return
+    for (const track of this.localStream.getTracks()) {
+      this.callSenders.push(pc.addTrack(track, this.localStream))
+    }
+  }
+
+  private cleanupCall(notify = true) {
+    for (const track of this.localStream?.getTracks() ?? []) track.stop()
+    if (this.pc) {
+      for (const sender of this.callSenders) {
+        try {
+          this.pc.removeTrack(sender)
+        } catch {
+          /* pc may be closing */
+        }
+      }
+    }
+    this.callSenders = []
+    this.localStream = null
+    this.remoteStream = null
+    this.callRemoteReady = false
+    this.pendingCallCandidates = []
+    this.callMeta = { video: false }
+    if (notify) {
+      this.handlers.onLocalStream?.(null)
+      this.handlers.onRemoteStream?.(null)
+      this.setCallState("idle")
+    }
+  }
+
+  // Caller: request a call. Media is added only after the peer accepts.
+  async startCall(video: boolean) {
+    if (!this.isOpen() || this.callState !== "idle") return
+    this.callMeta = { video }
+    try {
+      await this.getMedia(video)
+    } catch (err) {
+      this.handlers.onError?.(err instanceof Error ? err.message : "Could not access media")
+      this.cleanupCall()
+      return
+    }
+    this.setCallState("calling")
+    this.sendCall({ k: "call-invite", video })
+  }
+
+  // Callee: accept the incoming call, then wait for the caller's offer.
+  async acceptCall() {
+    if (this.callState !== "incoming") return
+    try {
+      await this.getMedia(this.callMeta.video)
+    } catch (err) {
+      this.handlers.onError?.(err instanceof Error ? err.message : "Could not access media")
+      this.declineCall()
+      return
+    }
+    this.setCallState("active")
+    this.sendCall({ k: "call-accept" })
+  }
+
+  declineCall() {
+    this.sendCall({ k: "call-decline" })
+    this.cleanupCall()
+  }
+
+  endCall() {
+    this.sendCall({ k: "call-end" })
+    this.cleanupCall()
+  }
+
+  toggleMic(): boolean {
+    const track = this.localStream?.getAudioTracks()[0]
+    if (!track) return false
+    track.enabled = !track.enabled
+    return track.enabled
+  }
+
+  toggleCam(): boolean {
+    const track = this.localStream?.getVideoTracks()[0]
+    if (!track) return false
+    track.enabled = !track.enabled
+    return track.enabled
+  }
+
+  private async handleCallControl(msg: Record<string, unknown>) {
+    const pc = this.pc
+    if (!pc) return
+    try {
+      switch (msg.k) {
+        case "call-invite":
+          this.callMeta = { video: !!msg.video }
+          this.setCallState("incoming")
+          break
+        case "call-accept": {
+          // Caller: attach media and send the renegotiation offer.
+          this.addLocalTracks()
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+          this.setCallState("active")
+          this.sendCall({ k: "call-sdp", sdp: pc.localDescription })
+          break
+        }
+        case "call-decline":
+        case "call-end":
+          this.cleanupCall()
+          break
+        case "call-sdp": {
+          const sdp = (msg.sdp as RTCSessionDescriptionInit | undefined) ?? undefined
+          if (!sdp) break
+          await pc.setRemoteDescription(sdp)
+          if (sdp.type === "offer") {
+            // Callee: attach media and answer.
+            this.addLocalTracks()
+            const answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
+            this.sendCall({ k: "call-sdp", sdp: pc.localDescription })
+          }
+          this.callRemoteReady = true
+          const buffered = this.pendingCallCandidates.splice(0)
+          for (const c of buffered) await pc.addIceCandidate(c).catch(() => {})
+          break
+        }
+        case "call-ice": {
+          const candidate = msg.candidate as RTCIceCandidateInit | undefined
+          if (!candidate) break
+          if (this.callRemoteReady) await pc.addIceCandidate(candidate).catch(() => {})
+          else this.pendingCallCandidates.push(candidate)
+          break
+        }
+      }
+    } catch (err) {
+      this.handlers.onError?.(err instanceof Error ? err.message : "call error")
+    }
+  }
+
   close() {
     this.closedByUser = true
+    this.cleanupCall(false)
     this.closeSignaling()
     try {
       this.channel?.close()
@@ -307,6 +541,7 @@ export class PeerConnection {
     }
     this.channel = null
     this.pc = null
+    this.handlers.onSafety?.(null)
     this.setStatus("disconnected")
   }
 }
@@ -321,8 +556,25 @@ const NOUNS = [
   "willow", "ember", "pixel", "cobalt", "summit", "orbit", "quartz", "raven",
 ]
 
+// Cryptographically-strong random in [0, max). Falls back to Math.random only
+// where WebCrypto is unavailable (it isn't, in any browser we target).
+function secureInt(max: number): number {
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    // Rejection-sample to avoid modulo bias.
+    const limit = Math.floor(0xffffffff / max) * max
+    const buf = new Uint32Array(1)
+    let x = 0
+    do {
+      crypto.getRandomValues(buf)
+      x = buf[0]
+    } while (x >= limit)
+    return x % max
+  }
+  return Math.floor(Math.random() * max)
+}
+
 export function generateCode(): string {
-  const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)]
-  const num = Math.floor(1000 + Math.random() * 9000)
+  const pick = <T,>(arr: T[]) => arr[secureInt(arr.length)]
+  const num = 1000 + secureInt(9000)
   return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${num}`
 }

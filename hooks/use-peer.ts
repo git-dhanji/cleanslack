@@ -1,10 +1,17 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { PeerConnection, type PeerStatus } from "@/lib/webrtc"
+import { toast } from "sonner"
+import { PeerConnection, type PeerStatus, type CallState } from "@/lib/webrtc"
 import { reserveCode, releaseCode } from "@/lib/codes"
 
+export type { CallState }
+
 export type ConnectMode = "create" | "join"
+
+// typing = actively producing text; present = focused on the box but paused;
+// idle = not composing at all.
+export type PeerActivity = "typing" | "present" | "idle"
 
 export type { PeerStatus }
 
@@ -47,7 +54,7 @@ function newId() {
 
 // Remember the last successful connection so a returning user can rejoin without
 // retyping the code. Only the code + role are kept, locally, for 24h.
-const LAST_KEY = "cove:last"
+const LAST_KEY = "wisp:last"
 const LAST_TTL = 24 * 60 * 60 * 1000
 
 export interface LastSession {
@@ -90,10 +97,35 @@ export function usePeer() {
   const peerRef = useRef<PeerConnection | null>(null)
   const incomingRef = useRef<IncomingFile | null>(null)
   const reservedRef = useRef<string | null>(null) // code we reserved (release on exit)
+  const sendChainRef = useRef<Promise<void>>(Promise.resolve()) // serialize outgoing files
   const [status, setStatus] = useState<PeerStatus>("idle")
   const [items, setItems] = useState<ChatItem[]>([])
   const [code, setCode] = useState("")
   const [lastSession, setLastSession] = useState<LastSession | null>(null)
+  const [peerActivity, setPeerActivity] = useState<PeerActivity>("idle")
+  const [safety, setSafety] = useState<string | null>(null)
+
+  // Voice/video call state.
+  const [callState, setCallState] = useState<CallState>("idle")
+  const [callVideo, setCallVideo] = useState(false)
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null)
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [micOn, setMicOn] = useState(true)
+  const [camOn, setCamOn] = useState(true)
+
+  const resetCall = useCallback(() => {
+    setCallState("idle")
+    setCallVideo(false)
+    setLocalStream(null)
+    setRemoteStream(null)
+    setMicOn(true)
+    setCamOn(true)
+  }, [])
+
+  // Tell the peer what we're doing in the composer (typing / paused / idle).
+  const sendActivity = useCallback((state: PeerActivity) => {
+    peerRef.current?.sendControl({ k: "activity", state })
+  }, [])
 
   // Load the remembered session (if any) once on mount.
   useEffect(() => {
@@ -115,13 +147,26 @@ export function usePeer() {
       switch (msg.k) {
         case "msg":
           if (typeof msg.text === "string") {
+            setPeerActivity("idle") // they just sent — no longer typing
             addItem({
-              id: newId(),
+              // Share the sender's id so "delete for everyone" matches on both sides.
+              id: typeof msg.id === "string" ? msg.id : newId(),
               kind: "text",
               text: msg.text,
               mine: false,
               ts: typeof msg.ts === "number" ? msg.ts : Date.now(),
             })
+          }
+          break
+        case "activity":
+          if (msg.state === "typing" || msg.state === "present" || msg.state === "idle") {
+            setPeerActivity(msg.state)
+          }
+          break
+        case "delete":
+          // Peer deleted a message for everyone — remove it on our side too.
+          if (typeof msg.id === "string") {
+            setItems((prev) => prev.filter((it) => it.id !== msg.id))
           }
           break
         case "file-start":
@@ -177,17 +222,32 @@ export function usePeer() {
       peerRef.current?.close()
       incomingRef.current = null
       setItems([])
+      setPeerActivity("idle")
+      setSafety(null)
+      resetCall()
       setCode(normalized)
 
       const peer = new PeerConnection({
         onStatus: setStatus,
         onControl: handleControl,
         onBinary: handleBinary,
+        onSafety: setSafety,
+        onCallState: (state, meta) => {
+          setCallState(state)
+          setCallVideo(meta.video)
+          if (state === "idle") {
+            setMicOn(true)
+            setCamOn(true)
+          }
+        },
+        onLocalStream: setLocalStream,
+        onRemoteStream: setRemoteStream,
+        onError: (message) => toast.error(message),
       })
       peerRef.current = peer
       peer.connect(normalized)
     },
-    [handleControl, handleBinary],
+    [handleControl, handleBinary, resetCall],
   )
 
   // Connect to a code. In "create" mode we first reserve the code so two hosts
@@ -232,39 +292,82 @@ export function usePeer() {
       const trimmed = text.trim()
       const peer = peerRef.current
       if (!trimmed || !peer?.isOpen()) return
-      peer.sendText(trimmed)
-      addItem({ id: newId(), kind: "text", text: trimmed, mine: true, ts: Date.now() })
+      // Send the id with the message so both sides key the message the same way
+      // (required for "delete for everyone" to find it on the peer).
+      const id = newId()
+      const ts = Date.now()
+      peer.sendControl({ k: "msg", id, text: trimmed, ts })
+      addItem({ id, kind: "text", text: trimmed, mine: true, ts })
     },
     [addItem],
   )
 
   const sendFile = useCallback(
-    async (file: File) => {
-      const peer = peerRef.current
-      if (!peer?.isOpen()) return
+    (file: File) => {
       const id = newId()
+      const mime = file.type || "application/octet-stream"
+      // Local preview for images/GIFs so the sender sees them inline too.
+      const url = mime.startsWith("image/") ? URL.createObjectURL(file) : undefined
+
       addItem({
         id,
         kind: "file",
         name: file.name,
         size: file.size,
-        mime: file.type || "application/octet-stream",
+        mime,
         mine: true,
         ts: Date.now(),
         progress: 0,
         status: "transferring",
+        url,
       })
-      try {
-        await peer.sendFile(file, id, (sent, total) => {
-          patchItem(id, { progress: total > 0 ? sent / total : 1 })
-        })
-        patchItem(id, { progress: 1, status: "complete" })
-      } catch {
-        patchItem(id, { status: "error" })
-      }
+
+      // Queue behind any in-flight transfer: files must not interleave on the
+      // single data channel, or the receiver's chunks would get mixed up.
+      sendChainRef.current = sendChainRef.current.then(async () => {
+        const peer = peerRef.current
+        if (!peer?.isOpen()) {
+          patchItem(id, { status: "error" })
+          return
+        }
+        try {
+          await peer.sendFile(file, id, (sent, total) => {
+            patchItem(id, { progress: total > 0 ? sent / total : 1 })
+          })
+          patchItem(id, { progress: 1, status: "complete" })
+        } catch {
+          patchItem(id, { status: "error" })
+        }
+      })
     },
     [addItem, patchItem],
   )
+
+  // Delete a message: locally always; "for everyone" also tells the peer to drop it.
+  const deleteItem = useCallback((id: string, forEveryone: boolean) => {
+    setItems((prev) => prev.filter((it) => it.id !== id))
+    if (forEveryone) peerRef.current?.sendControl({ k: "delete", id })
+  }, [])
+
+  // ---- Call actions ----
+  const startCall = useCallback((video: boolean) => {
+    void peerRef.current?.startCall(video)
+  }, [])
+  const acceptCall = useCallback(() => {
+    void peerRef.current?.acceptCall()
+  }, [])
+  const declineCall = useCallback(() => {
+    peerRef.current?.declineCall()
+  }, [])
+  const endCall = useCallback(() => {
+    peerRef.current?.endCall()
+  }, [])
+  const toggleMic = useCallback(() => {
+    setMicOn(peerRef.current?.toggleMic() ?? true)
+  }, [])
+  const toggleCam = useCallback(() => {
+    setCamOn(peerRef.current?.toggleCam() ?? true)
+  }, [])
 
   const disconnect = useCallback(() => {
     peerRef.current?.close()
@@ -277,7 +380,10 @@ export function usePeer() {
     setStatus("idle")
     setCode("")
     setItems([])
-  }, [])
+    setPeerActivity("idle")
+    setSafety(null)
+    resetCall()
+  }, [resetCall])
 
   // Release any reserved code and tear down on unmount or tab close.
   useEffect(() => {
@@ -298,11 +404,28 @@ export function usePeer() {
     items,
     code,
     lastSession,
+    peerActivity,
+    safety,
     connect,
     reconnect,
     forgetLastSession,
     sendText,
     sendFile,
+    sendActivity,
+    deleteItem,
     disconnect,
+    // calls
+    callState,
+    callVideo,
+    localStream,
+    remoteStream,
+    micOn,
+    camOn,
+    startCall,
+    acceptCall,
+    declineCall,
+    endCall,
+    toggleMic,
+    toggleCam,
   }
 }

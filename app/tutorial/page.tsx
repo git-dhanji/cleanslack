@@ -4,8 +4,8 @@ import { PageShell } from "@/components/content/page-shell"
 import { Button } from "@/components/ui/button"
 
 export const metadata = {
-  title: "Tutorial — Cove",
-  description: "A step-by-step walkthrough of connecting and chatting privately on Cove.",
+  title: "Tutorial — Wisp",
+  description: "A step-by-step walkthrough of connecting and chatting privately on Wisp.",
 }
 
 const STEPS = [
@@ -15,7 +15,7 @@ const STEPS = [
     body: (
       <>
         Go to <Link href="/connect" className="text-primary hover:underline">Connect</Link> and pick
-        the <strong>Create</strong> tab. Cove shows a ready-made code like{" "}
+        the <strong>Create</strong> tab. Wisp shows a ready-made code like{" "}
         <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-sm">brave-otter-4821</code>.
         You can keep it, or type your own code or number — anything at least 3 characters. Press{" "}
         <em>Create &amp; wait for peer</em>.
@@ -73,7 +73,7 @@ export default function TutorialPage() {
     <PageShell
       eyebrow="Tutorial"
       title="Your first private connection"
-      intro="Five short steps from opening Cove to chatting and sharing files directly, device to device."
+      intro="Five short steps from opening Wisp to chatting and sharing files directly, device to device."
     >
       <ol className="space-y-8">
         {STEPS.map((step, i) => (

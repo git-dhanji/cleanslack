@@ -18,12 +18,28 @@ export function ConnectPanel() {
     items,
     code,
     lastSession,
+    peerActivity,
+    safety,
     connect,
     reconnect,
     forgetLastSession,
     sendText,
     sendFile,
+    sendActivity,
+    deleteItem,
     disconnect,
+    callState,
+    callVideo,
+    localStream,
+    remoteStream,
+    micOn,
+    camOn,
+    startCall,
+    acceptCall,
+    declineCall,
+    endCall,
+    toggleMic,
+    toggleCam,
   } = usePeer()
   const searchParams = useSearchParams()
   const autoJoined = useRef(false)
@@ -50,8 +66,26 @@ export function ConnectPanel() {
         code={code}
         status={status}
         items={items}
+        peerActivity={peerActivity}
+        safety={safety}
+        call={{
+          state: callState,
+          video: callVideo,
+          localStream,
+          remoteStream,
+          micOn,
+          camOn,
+          start: startCall,
+          accept: acceptCall,
+          decline: declineCall,
+          end: endCall,
+          toggleMic,
+          toggleCam,
+        }}
         onSend={sendText}
         onSendFile={sendFile}
+        onActivity={sendActivity}
+        onDelete={deleteItem}
         onReconnect={reconnect}
         onDisconnect={disconnect}
       />

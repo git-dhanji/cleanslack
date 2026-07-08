@@ -4,11 +4,12 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { Reveal } from "@/components/motion/reveal"
 
 const FAQ = [
   {
     q: "Is my conversation really private?",
-    a: "Yes. Cove uses WebRTC, whose connections are always encrypted end-to-end with DTLS. Messages and files travel directly between the two devices — the server never receives them, so your conversation is never stored anywhere.",
+    a: "Yes. Wisp uses WebRTC, whose connections are always encrypted end-to-end with DTLS. Messages and files travel directly between the two devices — the server never receives them, so your conversation is never stored anywhere.",
   },
   {
     q: "What does the server do, then?",
@@ -20,7 +21,7 @@ const FAQ = [
   },
   {
     q: "Can I choose my own code?",
-    a: "Yes. You can let Cove generate a random code, or type your own number or word. Whoever enters the same code first becomes the host; the second person to enter it joins.",
+    a: "Yes. You can let Wisp generate a random code, or type your own number or word. Whoever enters the same code first becomes the host; the second person to enter it joins.",
   },
   {
     q: "How large can the files be?",
@@ -35,11 +36,12 @@ const FAQ = [
 export function Faq() {
   return (
     <section className="mx-auto max-w-3xl px-4 py-20 sm:px-6">
-      <div className="text-center">
+      <Reveal className="text-center">
         <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
           Questions
         </h2>
-      </div>
+      </Reveal>
+      <Reveal delay={0.05}>
       <Accordion type="single" collapsible className="mt-10">
         {FAQ.map((item, i) => (
           <AccordionItem key={i} value={`item-${i}`}>
@@ -48,6 +50,7 @@ export function Faq() {
           </AccordionItem>
         ))}
       </Accordion>
+      </Reveal>
     </section>
   )
 }

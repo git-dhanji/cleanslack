@@ -1,10 +1,11 @@
 import { KeyRound, Share2, Wifi } from "lucide-react"
+import { Reveal } from "@/components/motion/reveal"
 
 const STEPS = [
   {
     icon: KeyRound,
     title: "1 · Create a code",
-    body: "Open Cove and get a unique connection code — or type your own number. Nothing is registered anywhere.",
+    body: "Open Wisp and get a unique connection code — or type your own number. Nothing is registered anywhere.",
   },
   {
     icon: Share2,
@@ -21,7 +22,7 @@ const STEPS = [
 export function Steps() {
   return (
     <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-      <div className="mx-auto max-w-2xl text-center">
+      <Reveal className="mx-auto max-w-2xl text-center">
         <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
           Three steps. No sign-up.
         </h2>
@@ -29,12 +30,13 @@ export function Steps() {
           The server only introduces the two of you. Once you are connected, every message and
           file travels straight between your devices.
         </p>
-      </div>
+      </Reveal>
 
       <div className="mt-14 grid gap-4 md:grid-cols-3">
-        {STEPS.map((s) => (
-          <div
+        {STEPS.map((s, i) => (
+          <Reveal
             key={s.title}
+            delay={i * 0.1}
             className="relative rounded-2xl border border-border bg-card p-6"
           >
             <span className="grid h-11 w-11 place-items-center rounded-xl bg-accent text-accent-foreground">
@@ -42,7 +44,7 @@ export function Steps() {
             </span>
             <h3 className="mt-5 font-semibold">{s.title}</h3>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
-          </div>
+          </Reveal>
         ))}
       </div>
     </section>

@@ -3,23 +3,23 @@ import { Check, X, Info, AlertTriangle } from "lucide-react"
 import { PageShell, SectionTitle, Prose } from "@/components/content/page-shell"
 
 export const metadata = {
-  title: "Guide — Cove",
+  title: "Guide — Wisp",
   description:
-    "How Cove works, what makes it private, what the server can and cannot see, and its honest limitations.",
+    "How Wisp works, what makes it private, what the server can and cannot see, and its honest limitations.",
 }
 
 export default function GuidePage() {
   return (
     <PageShell
       eyebrow="Guide"
-      title="How Cove works"
+      title="How Wisp works"
       intro="A plain-language explanation of the connection model, the privacy guarantees, and the trade-offs — so you know exactly what you are trusting."
     >
       <SectionTitle>The idea</SectionTitle>
       <Prose>
         <p>
           Most chat apps are a <em>middleman</em>: your messages travel to a company&apos;s servers,
-          get stored in a database, and are forwarded to the other person. Cove removes the
+          get stored in a database, and are forwarded to the other person. Wisp removes the
           middleman. Two devices talk <strong>directly</strong> to each other using a browser
           technology called WebRTC.
         </p>
@@ -39,7 +39,7 @@ export default function GuidePage() {
         </p>
         <p>
           <strong>2 · Direct link.</strong> Once the path is found, an encrypted channel opens
-          straight between the two devices. Cove closes the signaling connection at this point.
+          straight between the two devices. Wisp closes the signaling connection at this point.
           From here every message and file flows peer-to-peer, and the server carries none of it.
         </p>
       </Prose>
@@ -139,6 +139,13 @@ export default function GuidePage() {
             <strong className="text-foreground">Very large files use device memory.</strong>{" "}
             Received files are assembled in the browser before you save them, so extremely large
             transfers depend on the receiving device having room.
+          </li>
+          <li>
+            <strong className="text-foreground">Calls need HTTPS or localhost.</strong> Voice and
+            video use the same peer-to-peer connection (their setup is signaled over the encrypted
+            data channel, never the server). But browsers only grant camera/microphone access on a
+            secure origin, so a call needs HTTPS or localhost — a plain LAN address will be blocked
+            by the browser.
           </li>
         </ul>
       </div>
