@@ -90,6 +90,7 @@ export function usePeer() {
   const peerRef = useRef<PeerConnection | null>(null)
   const incomingRef = useRef<IncomingFile | null>(null)
   const reservedRef = useRef<string | null>(null) // code we reserved (release on exit)
+  const sendChainRef = useRef<Promise<void>>(Promise.resolve()) // serialize outgoing files
   const [status, setStatus] = useState<PeerStatus>("idle")
   const [items, setItems] = useState<ChatItem[]>([])
   const [code, setCode] = useState("")
@@ -239,29 +240,42 @@ export function usePeer() {
   )
 
   const sendFile = useCallback(
-    async (file: File) => {
-      const peer = peerRef.current
-      if (!peer?.isOpen()) return
+    (file: File) => {
       const id = newId()
+      const mime = file.type || "application/octet-stream"
+      // Local preview for images/GIFs so the sender sees them inline too.
+      const url = mime.startsWith("image/") ? URL.createObjectURL(file) : undefined
+
       addItem({
         id,
         kind: "file",
         name: file.name,
         size: file.size,
-        mime: file.type || "application/octet-stream",
+        mime,
         mine: true,
         ts: Date.now(),
         progress: 0,
         status: "transferring",
+        url,
       })
-      try {
-        await peer.sendFile(file, id, (sent, total) => {
-          patchItem(id, { progress: total > 0 ? sent / total : 1 })
-        })
-        patchItem(id, { progress: 1, status: "complete" })
-      } catch {
-        patchItem(id, { status: "error" })
-      }
+
+      // Queue behind any in-flight transfer: files must not interleave on the
+      // single data channel, or the receiver's chunks would get mixed up.
+      sendChainRef.current = sendChainRef.current.then(async () => {
+        const peer = peerRef.current
+        if (!peer?.isOpen()) {
+          patchItem(id, { status: "error" })
+          return
+        }
+        try {
+          await peer.sendFile(file, id, (sent, total) => {
+            patchItem(id, { progress: total > 0 ? sent / total : 1 })
+          })
+          patchItem(id, { progress: 1, status: "complete" })
+        } catch {
+          patchItem(id, { status: "error" })
+        }
+      })
     },
     [addItem, patchItem],
   )

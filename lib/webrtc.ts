@@ -51,6 +51,11 @@ export class PeerConnection {
   private code = ""
   private status: PeerStatus = "idle"
   private closedByUser = false
+  // Serialize remote-signal handling so an ICE candidate can never be processed
+  // before the SDP it belongs to. Candidates that still arrive early are buffered.
+  private signalChain: Promise<void> = Promise.resolve()
+  private remoteReady = false
+  private pendingCandidates: RTCIceCandidateInit[] = []
 
   constructor(private handlers: PeerHandlers) {
     this.peerId =
@@ -141,7 +146,8 @@ export class PeerConnection {
         this.closeSignaling()
         break
       case "signal":
-        void this.onRemoteSignal(event.data)
+        // Chain so each signal fully applies before the next one starts.
+        this.signalChain = this.signalChain.then(() => this.onRemoteSignal(event.data))
         break
       case "ping":
         break
@@ -171,8 +177,19 @@ export class PeerConnection {
           await pc.setLocalDescription(answer)
           this.postSignal({ sdp: pc.localDescription })
         }
+        // Remote description is set — drain any candidates that arrived early.
+        this.remoteReady = true
+        const buffered = this.pendingCandidates.splice(0)
+        for (const candidate of buffered) {
+          await pc.addIceCandidate(candidate).catch(() => {})
+        }
       } else if (payload.candidate) {
-        await pc.addIceCandidate(payload.candidate)
+        if (this.remoteReady) {
+          await pc.addIceCandidate(payload.candidate)
+        } else {
+          // No remote description yet — hold the candidate until there is one.
+          this.pendingCandidates.push(payload.candidate)
+        }
       }
     } catch (err) {
       this.handlers.onError?.(err instanceof Error ? err.message : "handshake error")
