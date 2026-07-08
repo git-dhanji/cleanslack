@@ -140,6 +140,13 @@ export default function GuidePage() {
             Received files are assembled in the browser before you save them, so extremely large
             transfers depend on the receiving device having room.
           </li>
+          <li>
+            <strong className="text-foreground">Calls need HTTPS or localhost.</strong> Voice and
+            video use the same peer-to-peer connection (their setup is signaled over the encrypted
+            data channel, never the server). But browsers only grant camera/microphone access on a
+            secure origin, so a call needs HTTPS or localhost — a plain LAN address will be blocked
+            by the browser.
+          </li>
         </ul>
       </div>
 
