@@ -4,6 +4,8 @@ import { ConnectPanel } from "@/components/connect/connect-panel"
 
 export const metadata = {
   title: "Connect — Peerlink",
+  // Invite links carry a connection code in the URL — keep them out of search indexes.
+  robots: { index: false, follow: false },
 }
 
 export default function ConnectPage() {
