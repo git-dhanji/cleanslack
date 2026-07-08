@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Send, LogOut, ShieldCheck, Paperclip, Loader2, WifiOff, RotateCcw } from "lucide-react"
-import type { ChatItem, PeerStatus, PeerActivity } from "@/hooks/use-peer"
+import { Send, LogOut, ShieldCheck, Paperclip, Loader2, WifiOff, RotateCcw, Phone, Video } from "lucide-react"
+import type { ChatItem, PeerStatus, PeerActivity, CallState } from "@/hooks/use-peer"
 import { LinkMark } from "@/components/brand"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { StatusBadge } from "./status-badge"
@@ -11,6 +11,7 @@ import { FileBubble } from "./file-bubble"
 import { EmojiPicker } from "./emoji-picker"
 import { MessageText } from "./message-text"
 import { TypingIndicator } from "./typing-indicator"
+import { CallOverlay } from "./call-overlay"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -26,11 +27,27 @@ import {
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
 
+export interface CallProps {
+  state: CallState
+  video: boolean
+  localStream: MediaStream | null
+  remoteStream: MediaStream | null
+  micOn: boolean
+  camOn: boolean
+  start: (video: boolean) => void
+  accept: () => void
+  decline: () => void
+  end: () => void
+  toggleMic: () => void
+  toggleCam: () => void
+}
+
 interface ChatRoomProps {
   code: string
   status: PeerStatus
   items: ChatItem[]
   peerActivity: PeerActivity
+  call: CallProps
   onSend: (text: string) => void
   onSendFile: (file: File) => void
   onActivity: (state: PeerActivity) => void
@@ -43,6 +60,7 @@ export function ChatRoom({
   status,
   items,
   peerActivity,
+  call,
   onSend,
   onSendFile,
   onActivity,
@@ -135,11 +153,47 @@ export function ChatRoom({
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {connected && call.state === "idle" && (
+              <>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-muted-foreground"
+                  aria-label="Start voice call"
+                  onClick={() => call.start(false)}
+                >
+                  <Phone className="h-5 w-5" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="text-muted-foreground"
+                  aria-label="Start video call"
+                  onClick={() => call.start(true)}
+                >
+                  <Video className="h-5 w-5" />
+                </Button>
+              </>
+            )}
             <ThemeToggle />
             <LeaveButton onConfirm={onDisconnect} ended={ended} />
           </div>
         </div>
       </header>
+
+      <CallOverlay
+        callState={call.state}
+        callVideo={call.video}
+        localStream={call.localStream}
+        remoteStream={call.remoteStream}
+        micOn={call.micOn}
+        camOn={call.camOn}
+        onAccept={call.accept}
+        onDecline={call.decline}
+        onEnd={call.end}
+        onToggleMic={call.toggleMic}
+        onToggleCam={call.toggleCam}
+      />
 
       {/* Body */}
       {status === "connecting" ? (

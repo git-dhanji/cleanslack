@@ -20,10 +20,20 @@ export type PeerStatus =
   | "failed"
   | "full" // code already used by two people
 
+// Call state for voice/video. All call setup is signaled over the data channel
+// (never the server) via a manual renegotiation, so calls add zero server load.
+export type CallState = "idle" | "calling" | "incoming" | "active"
+export interface CallMeta {
+  video: boolean
+}
+
 export interface PeerHandlers {
   onStatus?: (status: PeerStatus) => void
   onControl?: (msg: Record<string, unknown>) => void // JSON control/text frames
   onBinary?: (chunk: ArrayBuffer) => void // binary file chunks
+  onCallState?: (state: CallState, meta: CallMeta) => void
+  onLocalStream?: (stream: MediaStream | null) => void
+  onRemoteStream?: (stream: MediaStream | null) => void
   onError?: (message: string) => void
 }
 
@@ -56,6 +66,15 @@ export class PeerConnection {
   private signalChain: Promise<void> = Promise.resolve()
   private remoteReady = false
   private pendingCandidates: RTCIceCandidateInit[] = []
+  // Voice/video call state (renegotiated over the data channel).
+  private localStream: MediaStream | null = null
+  private remoteStream: MediaStream | null = null
+  private callState: CallState = "idle"
+  private callMeta: CallMeta = { video: false }
+  private callSenders: RTCRtpSender[] = []
+  private callChain: Promise<void> = Promise.resolve()
+  private callRemoteReady = false
+  private pendingCallCandidates: RTCIceCandidateInit[] = []
 
   constructor(private handlers: PeerHandlers) {
     this.peerId =
@@ -110,13 +129,27 @@ export class PeerConnection {
     this.pc = pc
 
     pc.onicecandidate = (e) => {
-      if (e.candidate) this.postSignal({ candidate: e.candidate })
+      if (!e.candidate) return
+      // Before the direct link exists, candidates go via the server. Once the
+      // data channel is open (e.g. during a call renegotiation), they go P2P.
+      if (this.isOpen()) {
+        this.channel!.send(JSON.stringify({ k: "call-ice", candidate: e.candidate }))
+      } else {
+        this.postSignal({ candidate: e.candidate })
+      }
     }
 
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState
       if (s === "failed") this.setStatus("failed")
       else if (s === "disconnected" && !this.closedByUser) this.setStatus("disconnected")
+    }
+
+    // Remote media arriving during a call.
+    pc.ontrack = (e) => {
+      if (!this.remoteStream) this.remoteStream = new MediaStream()
+      this.remoteStream.addTrack(e.track)
+      this.handlers.onRemoteStream?.(this.remoteStream)
     }
 
     // Guest receives the channel the host creates.
@@ -210,10 +243,18 @@ export class PeerConnection {
     }
     channel.onmessage = (e) => {
       if (typeof e.data === "string") {
+        let msg: Record<string, unknown>
         try {
-          this.handlers.onControl?.(JSON.parse(e.data))
+          msg = JSON.parse(e.data)
         } catch {
-          /* ignore malformed control frame */
+          return // ignore malformed control frame
+        }
+        // Call-signaling frames are handled internally; everything else
+        // (chat, files, typing) goes to the app.
+        if (typeof msg.k === "string" && msg.k.startsWith("call-")) {
+          this.callChain = this.callChain.then(() => this.handleCallControl(msg))
+        } else {
+          this.handlers.onControl?.(msg)
         }
       } else if (e.data instanceof ArrayBuffer) {
         this.handlers.onBinary?.(e.data)
@@ -309,8 +350,166 @@ export class PeerConnection {
     this.sendControl({ k: "file-end", id })
   }
 
+  // ---- Voice / video calls (all signaling flows over the data channel) ----
+
+  private sendCall(obj: Record<string, unknown>) {
+    if (this.isOpen()) this.channel!.send(JSON.stringify(obj))
+  }
+
+  private setCallState(state: CallState) {
+    this.callState = state
+    this.handlers.onCallState?.(state, this.callMeta)
+  }
+
+  private async getMedia(video: boolean): Promise<MediaStream> {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Camera/microphone need HTTPS or localhost")
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video })
+    this.localStream = stream
+    this.handlers.onLocalStream?.(stream)
+    return stream
+  }
+
+  private addLocalTracks() {
+    const pc = this.pc
+    if (!pc || !this.localStream || this.callSenders.length) return
+    for (const track of this.localStream.getTracks()) {
+      this.callSenders.push(pc.addTrack(track, this.localStream))
+    }
+  }
+
+  private cleanupCall(notify = true) {
+    for (const track of this.localStream?.getTracks() ?? []) track.stop()
+    if (this.pc) {
+      for (const sender of this.callSenders) {
+        try {
+          this.pc.removeTrack(sender)
+        } catch {
+          /* pc may be closing */
+        }
+      }
+    }
+    this.callSenders = []
+    this.localStream = null
+    this.remoteStream = null
+    this.callRemoteReady = false
+    this.pendingCallCandidates = []
+    this.callMeta = { video: false }
+    if (notify) {
+      this.handlers.onLocalStream?.(null)
+      this.handlers.onRemoteStream?.(null)
+      this.setCallState("idle")
+    }
+  }
+
+  // Caller: request a call. Media is added only after the peer accepts.
+  async startCall(video: boolean) {
+    if (!this.isOpen() || this.callState !== "idle") return
+    this.callMeta = { video }
+    try {
+      await this.getMedia(video)
+    } catch (err) {
+      this.handlers.onError?.(err instanceof Error ? err.message : "Could not access media")
+      this.cleanupCall()
+      return
+    }
+    this.setCallState("calling")
+    this.sendCall({ k: "call-invite", video })
+  }
+
+  // Callee: accept the incoming call, then wait for the caller's offer.
+  async acceptCall() {
+    if (this.callState !== "incoming") return
+    try {
+      await this.getMedia(this.callMeta.video)
+    } catch (err) {
+      this.handlers.onError?.(err instanceof Error ? err.message : "Could not access media")
+      this.declineCall()
+      return
+    }
+    this.setCallState("active")
+    this.sendCall({ k: "call-accept" })
+  }
+
+  declineCall() {
+    this.sendCall({ k: "call-decline" })
+    this.cleanupCall()
+  }
+
+  endCall() {
+    this.sendCall({ k: "call-end" })
+    this.cleanupCall()
+  }
+
+  toggleMic(): boolean {
+    const track = this.localStream?.getAudioTracks()[0]
+    if (!track) return false
+    track.enabled = !track.enabled
+    return track.enabled
+  }
+
+  toggleCam(): boolean {
+    const track = this.localStream?.getVideoTracks()[0]
+    if (!track) return false
+    track.enabled = !track.enabled
+    return track.enabled
+  }
+
+  private async handleCallControl(msg: Record<string, unknown>) {
+    const pc = this.pc
+    if (!pc) return
+    try {
+      switch (msg.k) {
+        case "call-invite":
+          this.callMeta = { video: !!msg.video }
+          this.setCallState("incoming")
+          break
+        case "call-accept": {
+          // Caller: attach media and send the renegotiation offer.
+          this.addLocalTracks()
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+          this.setCallState("active")
+          this.sendCall({ k: "call-sdp", sdp: pc.localDescription })
+          break
+        }
+        case "call-decline":
+        case "call-end":
+          this.cleanupCall()
+          break
+        case "call-sdp": {
+          const sdp = (msg.sdp as RTCSessionDescriptionInit | undefined) ?? undefined
+          if (!sdp) break
+          await pc.setRemoteDescription(sdp)
+          if (sdp.type === "offer") {
+            // Callee: attach media and answer.
+            this.addLocalTracks()
+            const answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
+            this.sendCall({ k: "call-sdp", sdp: pc.localDescription })
+          }
+          this.callRemoteReady = true
+          const buffered = this.pendingCallCandidates.splice(0)
+          for (const c of buffered) await pc.addIceCandidate(c).catch(() => {})
+          break
+        }
+        case "call-ice": {
+          const candidate = msg.candidate as RTCIceCandidateInit | undefined
+          if (!candidate) break
+          if (this.callRemoteReady) await pc.addIceCandidate(candidate).catch(() => {})
+          else this.pendingCallCandidates.push(candidate)
+          break
+        }
+      }
+    } catch (err) {
+      this.handlers.onError?.(err instanceof Error ? err.message : "call error")
+    }
+  }
+
   close() {
     this.closedByUser = true
+    this.cleanupCall(false)
     this.closeSignaling()
     try {
       this.channel?.close()

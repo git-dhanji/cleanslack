@@ -1,8 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { PeerConnection, type PeerStatus } from "@/lib/webrtc"
+import { toast } from "sonner"
+import { PeerConnection, type PeerStatus, type CallState } from "@/lib/webrtc"
 import { reserveCode, releaseCode } from "@/lib/codes"
+
+export type { CallState }
 
 export type ConnectMode = "create" | "join"
 
@@ -101,6 +104,23 @@ export function usePeer() {
   const [lastSession, setLastSession] = useState<LastSession | null>(null)
   const [peerActivity, setPeerActivity] = useState<PeerActivity>("idle")
 
+  // Voice/video call state.
+  const [callState, setCallState] = useState<CallState>("idle")
+  const [callVideo, setCallVideo] = useState(false)
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null)
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [micOn, setMicOn] = useState(true)
+  const [camOn, setCamOn] = useState(true)
+
+  const resetCall = useCallback(() => {
+    setCallState("idle")
+    setCallVideo(false)
+    setLocalStream(null)
+    setRemoteStream(null)
+    setMicOn(true)
+    setCamOn(true)
+  }, [])
+
   // Tell the peer what we're doing in the composer (typing / paused / idle).
   const sendActivity = useCallback((state: PeerActivity) => {
     peerRef.current?.sendControl({ k: "activity", state })
@@ -195,17 +215,29 @@ export function usePeer() {
       incomingRef.current = null
       setItems([])
       setPeerActivity("idle")
+      resetCall()
       setCode(normalized)
 
       const peer = new PeerConnection({
         onStatus: setStatus,
         onControl: handleControl,
         onBinary: handleBinary,
+        onCallState: (state, meta) => {
+          setCallState(state)
+          setCallVideo(meta.video)
+          if (state === "idle") {
+            setMicOn(true)
+            setCamOn(true)
+          }
+        },
+        onLocalStream: setLocalStream,
+        onRemoteStream: setRemoteStream,
+        onError: (message) => toast.error(message),
       })
       peerRef.current = peer
       peer.connect(normalized)
     },
-    [handleControl, handleBinary],
+    [handleControl, handleBinary, resetCall],
   )
 
   // Connect to a code. In "create" mode we first reserve the code so two hosts
@@ -297,6 +329,26 @@ export function usePeer() {
     [addItem, patchItem],
   )
 
+  // ---- Call actions ----
+  const startCall = useCallback((video: boolean) => {
+    void peerRef.current?.startCall(video)
+  }, [])
+  const acceptCall = useCallback(() => {
+    void peerRef.current?.acceptCall()
+  }, [])
+  const declineCall = useCallback(() => {
+    peerRef.current?.declineCall()
+  }, [])
+  const endCall = useCallback(() => {
+    peerRef.current?.endCall()
+  }, [])
+  const toggleMic = useCallback(() => {
+    setMicOn(peerRef.current?.toggleMic() ?? true)
+  }, [])
+  const toggleCam = useCallback(() => {
+    setCamOn(peerRef.current?.toggleCam() ?? true)
+  }, [])
+
   const disconnect = useCallback(() => {
     peerRef.current?.close()
     peerRef.current = null
@@ -309,7 +361,8 @@ export function usePeer() {
     setCode("")
     setItems([])
     setPeerActivity("idle")
-  }, [])
+    resetCall()
+  }, [resetCall])
 
   // Release any reserved code and tear down on unmount or tab close.
   useEffect(() => {
@@ -338,5 +391,18 @@ export function usePeer() {
     sendFile,
     sendActivity,
     disconnect,
+    // calls
+    callState,
+    callVideo,
+    localStream,
+    remoteStream,
+    micOn,
+    camOn,
+    startCall,
+    acceptCall,
+    declineCall,
+    endCall,
+    toggleMic,
+    toggleCam,
   }
 }

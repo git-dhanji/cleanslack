@@ -26,6 +26,18 @@ export function ConnectPanel() {
     sendFile,
     sendActivity,
     disconnect,
+    callState,
+    callVideo,
+    localStream,
+    remoteStream,
+    micOn,
+    camOn,
+    startCall,
+    acceptCall,
+    declineCall,
+    endCall,
+    toggleMic,
+    toggleCam,
   } = usePeer()
   const searchParams = useSearchParams()
   const autoJoined = useRef(false)
@@ -53,6 +65,20 @@ export function ConnectPanel() {
         status={status}
         items={items}
         peerActivity={peerActivity}
+        call={{
+          state: callState,
+          video: callVideo,
+          localStream,
+          remoteStream,
+          micOn,
+          camOn,
+          start: startCall,
+          accept: acceptCall,
+          decline: declineCall,
+          end: endCall,
+          toggleMic,
+          toggleCam,
+        }}
         onSend={sendText}
         onSendFile={sendFile}
         onActivity={sendActivity}
