@@ -1,9 +1,11 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Send, LogOut, ShieldCheck } from "lucide-react"
-import type { ChatMessage, PeerStatus } from "@/hooks/use-peer"
+import { toast } from "sonner"
+import { Send, LogOut, ShieldCheck, Paperclip } from "lucide-react"
+import type { ChatItem, PeerStatus } from "@/hooks/use-peer"
 import { StatusBadge } from "./status-badge"
+import { FileBubble } from "./file-bubble"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
@@ -11,19 +13,21 @@ import { cn } from "@/lib/utils"
 interface ChatRoomProps {
   code: string
   status: PeerStatus
-  messages: ChatMessage[]
+  items: ChatItem[]
   onSend: (text: string) => void
+  onSendFile: (file: File) => void
   onDisconnect: () => void
 }
 
-export function ChatRoom({ code, status, messages, onSend, onDisconnect }: ChatRoomProps) {
+export function ChatRoom({ code, status, items, onSend, onSendFile, onDisconnect }: ChatRoomProps) {
   const [draft, setDraft] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const connected = status === "connected"
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
-  }, [messages])
+  }, [items])
 
   const send = () => {
     if (!draft.trim()) return
@@ -31,14 +35,18 @@ export function ChatRoom({ code, status, messages, onSend, onDisconnect }: ChatR
     setDraft("")
   }
 
+  const pickFiles = (fileList: FileList | null) => {
+    if (!fileList) return
+    for (const file of Array.from(fileList)) onSendFile(file)
+    if (fileList.length) toast.success(fileList.length > 1 ? `Sending ${fileList.length} files` : "Sending file")
+  }
+
   return (
     <div className="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="truncate font-mono text-sm font-medium">{code}</span>
-          </div>
+          <span className="truncate font-mono text-sm font-medium">{code}</span>
           <StatusBadge status={status} />
         </div>
         <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={onDisconnect}>
@@ -50,35 +58,39 @@ export function ChatRoom({ code, status, messages, onSend, onDisconnect }: ChatR
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         <div className="mx-auto mb-2 flex w-fit items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-3 py-1 text-xs text-muted-foreground">
           <ShieldCheck className="h-3.5 w-3.5 text-success" />
-          Messages are end-to-end encrypted and never stored
+          End-to-end encrypted · nothing is stored
         </div>
 
-        {messages.length === 0 && connected && (
+        {items.length === 0 && connected && (
           <p className="pt-10 text-center text-sm text-muted-foreground">
-            You are connected. Say hello — this conversation lives only on your two devices.
+            You are connected. Send a message or a file — it travels only between your two devices.
           </p>
         )}
 
-        {messages.map((m) => (
-          <div key={m.id} className={cn("flex", m.mine ? "justify-end" : "justify-start")}>
-            <div
-              className={cn(
-                "max-w-[80%] rounded-2xl px-4 py-2 text-sm leading-relaxed",
-                m.mine
-                  ? "rounded-br-sm bg-primary text-primary-foreground"
-                  : "rounded-bl-sm bg-secondary text-secondary-foreground",
-              )}
-            >
-              <p className="whitespace-pre-wrap break-words">{m.text}</p>
-              <span
+        {items.map((item) => (
+          <div key={item.id} className={cn("flex", item.mine ? "justify-end" : "justify-start")}>
+            {item.kind === "file" ? (
+              <FileBubble file={item} />
+            ) : (
+              <div
                 className={cn(
-                  "mt-1 block text-[10px]",
-                  m.mine ? "text-primary-foreground/70" : "text-muted-foreground",
+                  "max-w-[80%] rounded-2xl px-4 py-2 text-sm leading-relaxed",
+                  item.mine
+                    ? "rounded-br-sm bg-primary text-primary-foreground"
+                    : "rounded-bl-sm bg-secondary text-secondary-foreground",
                 )}
               >
-                {new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              </span>
-            </div>
+                <p className="whitespace-pre-wrap break-words">{item.text}</p>
+                <span
+                  className={cn(
+                    "mt-1 block text-[10px]",
+                    item.mine ? "text-primary-foreground/70" : "text-muted-foreground",
+                  )}
+                >
+                  {new Date(item.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -86,6 +98,26 @@ export function ChatRoom({ code, status, messages, onSend, onDisconnect }: ChatR
       {/* Composer */}
       <div className="border-t border-border p-3">
         <div className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              pickFiles(e.target.files)
+              e.target.value = ""
+            }}
+          />
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-11 w-11 shrink-0"
+            disabled={!connected}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Send a file"
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

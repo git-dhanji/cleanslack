@@ -9,7 +9,7 @@ import { WaitingPanel } from "./waiting-panel"
 import { ChatRoom } from "./chat-room"
 
 export function ConnectPanel() {
-  const { status, messages, code, connect, sendText, disconnect } = usePeer()
+  const { status, items, code, connect, sendText, sendFile, disconnect } = usePeer()
   const searchParams = useSearchParams()
   const autoJoined = useRef(false)
 
@@ -42,8 +42,9 @@ export function ConnectPanel() {
     <ChatRoom
       code={code}
       status={status}
-      messages={messages}
+      items={items}
       onSend={sendText}
+      onSendFile={sendFile}
       onDisconnect={disconnect}
     />
   )

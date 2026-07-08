@@ -247,6 +247,51 @@ export class PeerConnection {
     return this.sendControl({ k: "msg", text, ts: Date.now() })
   }
 
+  // Send a file directly to the peer, chunked with backpressure so large files
+  // don't blow up memory. The channel is reliable + ordered, so chunks arrive
+  // complete and in order — nothing is lost. Progress is reported in bytes.
+  async sendFile(
+    file: File,
+    id: string,
+    onProgress?: (sent: number, total: number) => void,
+  ): Promise<void> {
+    const ch = this.channel
+    if (!ch || ch.readyState !== "open") throw new Error("not connected")
+
+    const CHUNK = 16 * 1024 // 16 KiB — safe across browsers
+    const HIGH_WATER = 8 * 1024 * 1024 // pause sending above 8 MiB buffered
+    ch.bufferedAmountLowThreshold = 256 * 1024
+
+    this.sendControl({
+      k: "file-start",
+      id,
+      name: file.name,
+      size: file.size,
+      mime: file.type || "application/octet-stream",
+    })
+
+    let offset = 0
+    while (offset < file.size) {
+      if (ch.bufferedAmount > HIGH_WATER) {
+        await new Promise<void>((resolve) => {
+          const onLow = () => {
+            ch.removeEventListener("bufferedamountlow", onLow)
+            resolve()
+          }
+          ch.addEventListener("bufferedamountlow", onLow)
+        })
+      }
+      const end = Math.min(offset + CHUNK, file.size)
+      const buffer = await file.slice(offset, end).arrayBuffer()
+      if (ch.readyState !== "open") throw new Error("connection closed")
+      ch.send(buffer)
+      offset = end
+      onProgress?.(offset, file.size)
+    }
+
+    this.sendControl({ k: "file-end", id })
+  }
+
   close() {
     this.closedByUser = true
     this.closeSignaling()
