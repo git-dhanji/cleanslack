@@ -19,7 +19,7 @@ const FEATURES = [
   {
     icon: EyeOff,
     title: "Nothing is stored",
-    body: "No database, no message history, no logs of what you said. Close the tab and the conversation is gone.",
+    body: "No message history, no logs, no server-side copy of anything you say. Close the tab and the conversation is gone.",
   },
   {
     icon: FileUp,

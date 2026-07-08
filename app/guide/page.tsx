@@ -64,8 +64,10 @@ export default function GuidePage() {
           <li className="flex gap-2">
             <Check className="mt-0.5 h-5 w-5 shrink-0 text-success" />
             <span>
-              <strong>No storage.</strong> There is no database. Messages and files exist only in
-              the two browsers, and vanish when you close the tab.
+              <strong>No message storage.</strong> Your conversation is never written to any
+              database. Messages and files exist only in the two browsers and vanish when you close
+              the tab. (A tiny database holds active connection codes so two people don&apos;t
+              collide on the same one — never any message, file, or identity.)
             </span>
           </li>
           <li className="flex gap-2">

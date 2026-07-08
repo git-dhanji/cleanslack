@@ -26,7 +26,7 @@ own), the other person enters it, and from that moment your two browsers talk to
 
 - **End-to-end encrypted** — every WebRTC connection is secured with DTLS. Only the two devices hold the keys.
 - **No accounts** — no email, no password, no profile. Nothing about you is collected.
-- **No storage** — there is no database. Messages and files live only in the two browsers and vanish when the tab closes.
+- **No message storage** — your conversation is never written to a database; messages and files live only in the two browsers and vanish when the tab closes. (A small database holds only active connection codes, so two people never collide on one — never any message, file, or identity.)
 - **Nothing through the server** — chat and files travel device-to-device. Zero relay, zero server load.
 - **Large files, direct** — send files of any size, streamed in chunks over a reliable channel so nothing is lost.
 
@@ -57,10 +57,14 @@ app/
   connect/page.tsx      The P2P connect + chat experience
   guide/page.tsx        Conceptual reference + honest limitations
   tutorial/page.tsx     Step-by-step walkthrough
-  api/signal/route.ts   The only server code: in-memory signaling relay
+  api/signal/route.ts   In-memory signaling relay (introduces two peers)
+  api/code/route.ts     Reserve/release/check codes (uniqueness only)
 lib/
   webrtc.ts             Peer engine: signaling, ICE, data channel, chunked files
   signaling-types.ts    Shared handshake message shapes
+  mongodb.ts            Connection helper (used only for the code registry)
+  models/code.ts        Reserved-code schema (code + TTL, nothing else)
+  codes.ts              Client helpers for the code API
 hooks/
   use-peer.ts           React hook over the peer engine (chat + file state)
 components/
@@ -85,12 +89,18 @@ npm run dev
 # open http://localhost:3000 on two devices/tabs to try a connection
 ```
 
-No database or secrets are required. The only optional configuration is a TURN relay (see below).
+No secrets are required. MongoDB is optional — it is used only to reserve connection codes so two
+people never collide on the same one; the app runs fine without it (code uniqueness then falls back
+to the in-memory room cap). The other optional configuration is a TURN relay (see below).
 
 ### Configuration (`.env.local`)
 
 ```bash
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Optional — used ONLY to reserve connection codes (never messages/identities).
+# Omit it and code uniqueness falls back to the in-memory room cap.
+MONGODB_URI=mongodb://localhost:27017/team-chat
 
 # Optional TURN relay for the ~10-20% of connections behind strict NATs.
 # It only ever carries DTLS-encrypted traffic, so it cannot read your data.

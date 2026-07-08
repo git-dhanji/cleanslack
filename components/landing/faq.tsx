@@ -8,7 +8,7 @@ import {
 const FAQ = [
   {
     q: "Is my conversation really private?",
-    a: "Yes. Cove uses WebRTC, whose connections are always encrypted end-to-end with DTLS. Messages and files travel directly between the two devices — the server never receives them and there is no database to store them.",
+    a: "Yes. Cove uses WebRTC, whose connections are always encrypted end-to-end with DTLS. Messages and files travel directly between the two devices — the server never receives them, so your conversation is never stored anywhere.",
   },
   {
     q: "What does the server do, then?",
