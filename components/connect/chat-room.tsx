@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { StatusBadge } from "./status-badge"
 import { FileBubble } from "./file-bubble"
 import { EmojiPicker } from "./emoji-picker"
+import { MessageText } from "./message-text"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -138,7 +139,7 @@ export function ChatRoom({
                         : "rounded-bl-sm bg-secondary text-secondary-foreground",
                     )}
                   >
-                    <p className="whitespace-pre-wrap break-words">{item.text}</p>
+                    <MessageText text={item.text} mine={item.mine} />
                     <span
                       className={cn(
                         "mt-1 block text-[10px]",
