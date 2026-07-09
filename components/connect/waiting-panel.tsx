@@ -11,8 +11,13 @@ export function WaitingPanel({ code, onCancel }: { code: string; onCancel: () =>
   const [copied, setCopied] = useState<"code" | "link" | null>(null)
   const [showQr, setShowQr] = useState(false)
 
+  // The secret (after "#") goes in the URL FRAGMENT: browsers never send the
+  // fragment to any server, so even our own server can't learn it from a click.
+  const [publicCode, secret] = code.split("#")
   const shareLink =
-    (typeof window !== "undefined" ? window.location.origin : "") + `/connect?code=${encodeURIComponent(code)}`
+    (typeof window !== "undefined" ? window.location.origin : "") +
+    `/connect?code=${encodeURIComponent(publicCode)}` +
+    (secret ? `#${secret}` : "")
 
   const copy = async (value: string, which: "code" | "link") => {
     const ok = await copyText(value)

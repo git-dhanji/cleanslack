@@ -11,6 +11,7 @@
 
 import type { ServerEvent, SignalRole } from "./signaling-types"
 import { deriveSafety } from "./safety"
+import { deriveSignalKey, sealSignal, openSignal, isSealed } from "./signal-crypto"
 
 export type PeerStatus =
   | "idle"
@@ -41,9 +42,14 @@ export interface PeerHandlers {
 }
 
 function iceServers(): RTCIceServer[] {
-  const servers: RTCIceServer[] = [
-    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-  ]
+  // STUN is configurable so deployments can point at their own server; the
+  // default is a neutral provider rather than Google, so connecting doesn't
+  // leak both users' IPs to an ad company on every session.
+  const stunUrls = (process.env.NEXT_PUBLIC_STUN_URLS || "stun:stun.cloudflare.com:3478")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const servers: RTCIceServer[] = [{ urls: stunUrls }]
   const turnUrl = process.env.NEXT_PUBLIC_TURN_URL
   if (turnUrl) {
     servers.push({
@@ -67,6 +73,9 @@ export class PeerConnection {
   // Serialize remote-signal handling so an ICE candidate can never be processed
   // before the SDP it belongs to. Candidates that still arrive early are buffered.
   private signalChain: Promise<void> = Promise.resolve()
+  // AES-GCM key derived from the room secret; when set, every signaling payload
+  // is encrypted end-to-end and unencrypted ones are rejected.
+  private signalKey: Promise<CryptoKey> | null = null
   private remoteReady = false
   private pendingCandidates: RTCIceCandidateInit[] = []
   // Voice/video call state (renegotiated over the data channel).
@@ -96,9 +105,12 @@ export class PeerConnection {
     this.handlers.onStatus?.(s)
   }
 
-  // Begin: open signaling for `code` and wire up WebRTC.
-  connect(code: string) {
+  // Begin: open signaling for `code` and wire up WebRTC. When the room has a
+  // secret, the whole handshake is sealed with a key only the two peers hold —
+  // the signaling server relays ciphertext it cannot read or tamper with.
+  connect(code: string, secret?: string | null) {
     this.code = code.trim().toLowerCase()
+    this.signalKey = secret ? deriveSignalKey(this.code, secret) : null
     this.closedByUser = false
     this.createPeer()
 
@@ -203,6 +215,19 @@ export class PeerConnection {
   private async onRemoteSignal(data: unknown) {
     const pc = this.pc
     if (!pc || !data || typeof data !== "object") return
+
+    // Rooms with a secret speak ONLY ciphertext: plaintext payloads are dropped
+    // (nothing to downgrade to), and payloads that don't decrypt — wrong secret
+    // or a tampering relay — are silently ignored.
+    if (this.signalKey) {
+      if (!isSealed(data)) return
+      const opened = await openSignal(await this.signalKey, data)
+      if (opened === null || typeof opened !== "object") return
+      data = opened
+    } else if (isSealed(data)) {
+      return // encrypted payload for a secretless room — not for us
+    }
+
     const payload = data as { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit }
 
     try {
@@ -269,12 +294,15 @@ export class PeerConnection {
   }
 
   private postSignal(data: unknown) {
-    void fetch("/api/signal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: this.code, peer: this.peerId, data }),
-      keepalive: true,
-    }).catch(() => {
+    void (async () => {
+      const payload = this.signalKey ? await sealSignal(await this.signalKey, data) : data
+      await fetch("/api/signal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: this.code, peer: this.peerId, data: payload }),
+        keepalive: true,
+      })
+    })().catch(() => {
       /* peer may not be listening yet; ICE will retry paths */
     })
   }
@@ -546,35 +574,6 @@ export class PeerConnection {
   }
 }
 
-// Generate a friendly random connection code (e.g. "brave-otter-4821").
-const ADJECTIVES = [
-  "brave", "calm", "clever", "swift", "quiet", "bright", "bold", "warm",
-  "cool", "keen", "mellow", "noble", "vivid", "amber", "azure", "cosmic",
-]
-const NOUNS = [
-  "otter", "falcon", "cedar", "harbor", "meadow", "comet", "river", "lynx",
-  "willow", "ember", "pixel", "cobalt", "summit", "orbit", "quartz", "raven",
-]
-
-// Cryptographically-strong random in [0, max). Falls back to Math.random only
-// where WebCrypto is unavailable (it isn't, in any browser we target).
-function secureInt(max: number): number {
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    // Rejection-sample to avoid modulo bias.
-    const limit = Math.floor(0xffffffff / max) * max
-    const buf = new Uint32Array(1)
-    let x = 0
-    do {
-      crypto.getRandomValues(buf)
-      x = buf[0]
-    } while (x >= limit)
-    return x % max
-  }
-  return Math.floor(Math.random() * max)
-}
-
-export function generateCode(): string {
-  const pick = <T,>(arr: T[]) => arr[secureInt(arr.length)]
-  const num = 1000 + secureInt(9000)
-  return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${num}`
-}
+// Re-exported for existing importers; implementation lives in lib/code-gen
+// so the server can share it too.
+export { generateCode } from "./code-gen"

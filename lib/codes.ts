@@ -7,6 +7,18 @@ export interface ReserveResult {
   taken: boolean
 }
 
+// Ask the server for a fresh code it has confirmed is not already in the
+// database. Returns null if the request fails (caller falls back to a local one).
+export async function fetchFreshCode(): Promise<string | null> {
+  try {
+    const res = await fetch("/api/code?fresh=1")
+    const data = await res.json().catch(() => ({}))
+    return typeof data.code === "string" ? data.code : null
+  } catch {
+    return null
+  }
+}
+
 // Try to reserve a code for hosting. `taken` means someone else holds it.
 export async function reserveCode(code: string): Promise<ReserveResult> {
   try {

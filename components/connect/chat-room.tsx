@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Send, LogOut, ShieldCheck, Paperclip, Loader2, WifiOff, RotateCcw, Phone, Video, MoreVertical, Trash2 } from "lucide-react"
+import { Send, LogOut, ShieldCheck, Paperclip, Loader2, WifiOff, RotateCcw, Phone, Video, MoreVertical, Trash2, DoorOpen } from "lucide-react"
 import type { ChatItem, PeerStatus, PeerActivity, CallState } from "@/hooks/use-peer"
 import { LinkMark } from "@/components/brand"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -60,6 +60,8 @@ interface ChatRoomProps {
   onDelete: (id: string, forEveryone: boolean) => void
   onReconnect: () => Promise<{ taken: boolean }>
   onDisconnect: () => void
+  onLeaveSafely: () => void
+  onDestroy: () => void
 }
 
 export function ChatRoom({
@@ -75,6 +77,8 @@ export function ChatRoom({
   onDelete,
   onReconnect,
   onDisconnect,
+  onLeaveSafely,
+  onDestroy,
 }: ChatRoomProps) {
   const [draft, setDraft] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -156,7 +160,7 @@ export function ChatRoom({
             </span>
             <div className="min-w-0">
               <div className="truncate font-mono text-sm font-medium leading-none">{code}</div>
-              <div className="mt-1">
+              <div className="mt-0.5">
                 <PresenceLine status={status} activity={peerActivity} />
               </div>
             </div>
@@ -185,7 +189,12 @@ export function ChatRoom({
               </>
             )}
             <ThemeToggle />
-            <LeaveButton onConfirm={onDisconnect} ended={ended} />
+            <ExitMenu
+              ended={ended}
+              onSafe={onLeaveSafely}
+              onDestroy={onDestroy}
+              onClose={onDisconnect}
+            />
           </div>
         </div>
       </header>
@@ -258,8 +267,8 @@ export function ChatRoom({
 
       {/* Composer */}
       {!ended && (
-        <div className="border-t border-border/70 bg-card/40 backdrop-blur">
-          <div className="mx-auto flex max-w-3xl items-end gap-2 px-4 py-3">
+        <div className="border-t border-border/70 bg-card/40 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+          <div className="mx-auto flex max-w-3xl items-end gap-2 px-2 py-2 sm:px-4 sm:py-3">
             <input
               ref={fileInputRef}
               type="file"
@@ -270,48 +279,50 @@ export function ChatRoom({
                 e.target.value = ""
               }}
             />
-            <EmojiPicker onPick={insertEmoji} disabled={!connected} />
+            <div className="flex min-w-0 flex-1 items-end gap-0.5 rounded-3xl border border-border bg-background px-1.5 py-1 shadow-sm focus-within:border-ring">
+              <EmojiPicker onPick={insertEmoji} disabled={!connected} />
+              <Textarea
+                ref={textareaRef}
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value)
+                  notifyTyping(e.target.value)
+                }}
+                onFocus={() => setActivity(draft.trim() ? "typing" : "present")}
+                onBlur={() => {
+                  if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current)
+                  setActivity("idle")
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    send()
+                  }
+                }}
+                placeholder={connected ? "Type a message…" : "Waiting for the connection…"}
+                disabled={!connected}
+                rows={1}
+                className="max-h-32 min-h-9 flex-1 resize-none border-0 bg-transparent px-1.5 py-2 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
+              />
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-9 w-9 shrink-0 rounded-full text-muted-foreground"
+                disabled={!connected}
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Send a file"
+              >
+                <Paperclip className="h-5 w-5" />
+              </Button>
+            </div>
             <Button
               size="icon"
-              variant="outline"
-              className="h-11 w-11 shrink-0"
-              disabled={!connected}
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Send a file"
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-            <Textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value)
-                notifyTyping(e.target.value)
-              }}
-              onFocus={() => setActivity(draft.trim() ? "typing" : "present")}
-              onBlur={() => {
-                if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current)
-                setActivity("idle")
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault()
-                  send()
-                }
-              }}
-              placeholder={connected ? "Type a message…" : "Waiting for the connection…"}
-              disabled={!connected}
-              rows={1}
-              className="max-h-32 min-h-11 resize-none"
-            />
-            <Button
-              size="icon"
-              className="h-11 w-11 shrink-0"
+              className="h-11 w-11 shrink-0 rounded-full shadow-sm"
               disabled={!connected || !draft.trim()}
               onClick={send}
               aria-label="Send message"
             >
-              <Send className="h-4 w-4" />
+              <Send className="h-5 w-5" />
             </Button>
           </div>
         </div>
@@ -354,34 +365,83 @@ function MessageActions({
   )
 }
 
-function LeaveButton({ onConfirm, ended }: { onConfirm: () => void; ended: boolean }) {
+// Two ways out of a live room:
+//  • Safe exit  — leave but keep the room + code alive; either side can rejoin.
+//  • Exit & destroy — wipe the chat, room, and code on BOTH devices, no resume.
+function ExitMenu({
+  ended,
+  onSafe,
+  onDestroy,
+  onClose,
+}: {
+  ended: boolean
+  onSafe: () => void
+  onDestroy: () => void
+  onClose: () => void
+}) {
+  const [confirmDestroy, setConfirmDestroy] = useState(false)
+
   if (ended) {
     return (
-      <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={onConfirm}>
+      <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={onClose}>
         <LogOut className="mr-1 h-4 w-4" /> Close
       </Button>
     )
   }
+
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="text-muted-foreground">
-          <LogOut className="mr-1 h-4 w-4" /> Leave
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Leave this connection?</AlertDialogTitle>
-          <AlertDialogDescription>
-            The conversation isn&apos;t stored anywhere, so it will be gone for good.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Stay</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>Leave</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" className="text-muted-foreground">
+            <LogOut className="mr-1 h-4 w-4" /> Leave
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-60">
+          <DropdownMenuItem onClick={onSafe}>
+            <DoorOpen className="mr-2 mt-0.5 h-4 w-4 shrink-0" />
+            <span className="flex flex-col">
+              Safe exit
+              <span className="text-xs text-muted-foreground">Keep the room — rejoin later</span>
+            </span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onSelect={(e) => {
+              e.preventDefault()
+              setConfirmDestroy(true)
+            }}
+          >
+            <Trash2 className="mr-2 mt-0.5 h-4 w-4 shrink-0" />
+            <span className="flex flex-col">
+              Exit &amp; destroy
+              <span className="text-xs text-muted-foreground">Delete chat, room &amp; code for both</span>
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <AlertDialog open={confirmDestroy} onOpenChange={setConfirmDestroy}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Destroy this room?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the conversation on <strong>both devices</strong>, closes the room, and
+              frees the connection code for reuse. It can&apos;t be undone or resumed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={onDestroy}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Destroy everything
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 

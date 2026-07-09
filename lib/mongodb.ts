@@ -10,6 +10,7 @@ const MONGODB_URI = process.env.MONGODB_URI
 interface GlobalMongoose {
   conn: typeof mongoose | null
   promise: Promise<typeof mongoose> | null
+  indexesSynced?: boolean
 }
 
 declare global {
@@ -36,6 +37,15 @@ async function dbConnect(): Promise<typeof mongoose> {
   } catch (e) {
     cached.promise = null
     throw e
+  }
+
+  // MongoDB never alters an existing TTL index on its own, so a changed
+  // `expires` in a schema would silently not apply. Sync once per process.
+  if (!cached.indexesSynced) {
+    cached.indexesSynced = true
+    await Promise.all(
+      Object.values(cached.conn.models).map((m) => m.syncIndexes().catch(() => {})),
+    )
   }
 
   return cached.conn

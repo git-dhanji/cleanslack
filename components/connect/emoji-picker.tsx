@@ -46,12 +46,12 @@ export function EmojiPicker({ onPick, disabled }: { onPick: (emoji: string) => v
       <PopoverTrigger asChild>
         <Button
           size="icon"
-          variant="outline"
-          className="h-11 w-11 shrink-0"
+          variant="ghost"
+          className="h-9 w-9 shrink-0 rounded-full text-muted-foreground"
           disabled={disabled}
           aria-label="Add emoji"
         >
-          <Smile className="h-4 w-4" />
+          <Smile className="h-5 w-5" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-0">

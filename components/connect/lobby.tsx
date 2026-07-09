@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Shuffle, ArrowRight, KeyRound, LogIn, Loader2, RotateCcw, X } from "lucide-react"
 import type { ConnectMode, LastSession } from "@/hooks/use-peer"
@@ -8,26 +8,51 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { generateCode } from "@/lib/webrtc"
+import { generateCode, generateSecret } from "@/lib/code-gen"
+import { fetchFreshCode } from "@/lib/codes"
 
+// Codes look like "public#secret" — keep the "#" so the secret survives typing
+// and pasting. Only the public part ever reaches the server.
 function sanitize(v: string) {
-  return v.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 64)
+  return v.toLowerCase().replace(/[^a-z0-9#-]/g, "").slice(0, 96)
 }
 
 export function Lobby({
+  initialTab = "create",
   onConnect,
   lastSession,
   onReconnect,
   onForgetLast,
 }: {
+  initialTab?: "create" | "join"
   onConnect: (code: string, mode: ConnectMode) => Promise<{ taken: boolean }>
   lastSession: LastSession | null
   onReconnect: () => Promise<{ taken: boolean }>
   onForgetLast: () => void
 }) {
-  const [createCode, setCreateCode] = useState(() => generateCode())
+  const [createCode, setCreateCode] = useState(() => `${generateCode()}#${generateSecret()}`)
   const [joinCode, setJoinCode] = useState("")
   const [busy, setBusy] = useState(false)
+  const [genBusy, setGenBusy] = useState(false)
+
+  // Ask the server for a code confirmed unique in the database. Falls back to a
+  // local random one if offline (the atomic reservation on create still guards).
+  const newUniqueCode = async () => {
+    setGenBusy(true)
+    try {
+      // The secret after "#" is generated locally and NEVER sent to the server —
+      // only the public part is checked for uniqueness.
+      setCreateCode(`${(await fetchFreshCode()) ?? generateCode()}#${generateSecret()}`)
+    } finally {
+      setGenBusy(false)
+    }
+  }
+
+  // Grab a guaranteed-unique code as soon as the lobby opens.
+  useEffect(() => {
+    void newUniqueCode()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const reconnect = async () => {
     setBusy(true)
@@ -45,9 +70,8 @@ export function Lobby({
     try {
       const { taken } = await onConnect(code, "create")
       if (taken) {
-        const fresh = generateCode()
-        setCreateCode(fresh)
-        toast.error("That code is already in use — here's a fresh one.")
+        await newUniqueCode()
+        toast.error("That code was just taken — here's a fresh one.")
       }
     } finally {
       setBusy(false)
@@ -92,7 +116,7 @@ export function Lobby({
         </div>
       )}
 
-      <Tabs defaultValue="create">
+      <Tabs defaultValue={initialTab}>
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="create">
             <KeyRound className="mr-1.5 h-4 w-4" /> Create
@@ -125,11 +149,11 @@ export function Lobby({
                   type="button"
                   variant="outline"
                   size="icon"
-                  aria-label="Generate a new code"
-                  onClick={() => setCreateCode(generateCode())}
-                  disabled={busy}
+                  aria-label="Generate a new unique code"
+                  onClick={() => void newUniqueCode()}
+                  disabled={busy || genBusy}
                 >
-                  <Shuffle className="h-4 w-4" />
+                  {genBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shuffle className="h-4 w-4" />}
                 </Button>
               </div>
             </div>
@@ -154,7 +178,7 @@ export function Lobby({
                 value={joinCode}
                 onChange={(e) => setJoinCode(sanitize(e.target.value))}
                 onKeyDown={(e) => e.key === "Enter" && submitJoin()}
-                placeholder="brave-otter-4821"
+                placeholder="brave-otter-4821#…"
                 className="font-mono"
                 autoComplete="off"
                 spellCheck={false}

@@ -8,7 +8,7 @@ export function PresenceLine({ status, activity }: { status: PeerStatus; activit
 
   if (activity === "typing") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-primary">
+      <span className="inline-flex items-center gap-1.5 text-xs leading-none text-primary">
         <span className="inline-flex gap-0.5">
           <Dot delay="0ms" />
           <Dot delay="150ms" />
@@ -20,7 +20,7 @@ export function PresenceLine({ status, activity }: { status: PeerStatus; activit
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-success">
+    <span className="inline-flex items-center gap-1.5 text-xs leading-none text-success">
       <span className="h-1.5 w-1.5 rounded-full bg-success" />
       online
     </span>

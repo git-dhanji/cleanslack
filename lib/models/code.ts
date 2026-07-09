@@ -1,9 +1,12 @@
 import mongoose, { Schema, type Model } from "mongoose"
 
-// A reserved connection code. This is the ONLY thing Wisp writes to the
-// database. It carries no user data — just the random code and when it was
-// reserved. A TTL index auto-deletes stale reservations after 2 hours, so the
-// collection cleans itself even if a peer never releases explicitly.
+// A reserved connection code. It carries no user data — just the random code
+// and when it was reserved. A TTL index auto-deletes a reservation 2 days after
+// it was created, so a code a user made stays resumable/rejoinable within that
+// window, then cleans itself up even if the peer never releases it explicitly.
+// An "exit & destroy" deletes it immediately (see /api/code release).
+
+const CODE_TTL_SECONDS = 60 * 60 * 24 * 2 // 2 days
 
 export interface ICode {
   code: string
@@ -12,7 +15,7 @@ export interface ICode {
 
 const CodeSchema = new Schema<ICode>({
   code: { type: String, required: true, unique: true, lowercase: true, trim: true },
-  createdAt: { type: Date, default: Date.now, expires: 60 * 60 * 2 },
+  createdAt: { type: Date, default: Date.now, expires: CODE_TTL_SECONDS },
 })
 
 const Code: Model<ICode> = mongoose.models.Code || mongoose.model<ICode>("Code", CodeSchema)

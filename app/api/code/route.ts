@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import Code from "@/lib/models/code"
+import { generateCode } from "@/lib/code-gen"
 
 // Code reservation — ensures two people never end up on the same connection
 // code. The database stores only the code; never any chat content or identity.
@@ -18,9 +19,31 @@ function isDuplicate(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: number }).code === 11000
 }
 
-// Is this code free to use?
+// GET ?fresh=1 → a freshly generated code that is confirmed NOT already in the
+// database, so the lobby only ever shows a code no one currently holds.
+// GET ?code=... → is that specific code free to use?
 export async function GET(request: NextRequest) {
-  const code = normalize(new URL(request.url).searchParams.get("code"))
+  const params = new URL(request.url).searchParams
+
+  if (params.get("fresh")) {
+    try {
+      await dbConnect()
+      // Try a handful of candidates; collisions are astronomically rare, so this
+      // almost always succeeds on the first try.
+      for (let i = 0; i < 12; i++) {
+        const candidate = generateCode()
+        if (!(await Code.exists({ code: candidate }))) {
+          return NextResponse.json({ code: candidate, db: true })
+        }
+      }
+      return NextResponse.json({ code: generateCode(), db: true })
+    } catch {
+      // DB down — still hand back a code; the atomic reservation on create guards.
+      return NextResponse.json({ code: generateCode(), db: false })
+    }
+  }
+
+  const code = normalize(params.get("code"))
   if (code.length < 3) return NextResponse.json({ available: false, error: "invalid" }, { status: 400 })
 
   try {
