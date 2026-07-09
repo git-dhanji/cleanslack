@@ -9,7 +9,7 @@
 // Once the DataChannel opens, the signaling connection is closed — the server
 // is out of the loop and all data flows straight between the two peers.
 
-import type { ServerEvent, SignalRole } from "./signaling-types"
+import type { ServerEvent, SignalPoll, SignalRole } from "./signaling-types"
 import { deriveSafety } from "./safety"
 import { deriveSignalKey, sealSignal, openSignal, isSealed } from "./signal-crypto"
 
@@ -28,6 +28,11 @@ export type CallState = "idle" | "calling" | "incoming" | "active"
 export interface CallMeta {
   video: boolean
 }
+
+// How often the browser polls the signaling endpoint during the handshake. Once
+// the direct data channel opens we stop polling entirely, so this cadence only
+// applies for the few seconds two peers take to find each other.
+const POLL_INTERVAL_MS = 1200
 
 export interface PeerHandlers {
   onStatus?: (status: PeerStatus) => void
@@ -64,7 +69,12 @@ function iceServers(): RTCIceServer[] {
 export class PeerConnection {
   private pc: RTCPeerConnection | null = null
   private channel: RTCDataChannel | null = null
-  private events: EventSource | null = null
+  // Signaling is short-polled (no long-lived stream). These track the loop and
+  // let us synthesize the same discrete events the engine already reacts to.
+  private polling = false
+  private pollTimer: ReturnType<typeof setTimeout> | null = null
+  private announcedReady = false
+  private knownOthers = new Set<string>()
   private readonly peerId: string
   private role: SignalRole | null = null
   private code = ""
@@ -112,30 +122,65 @@ export class PeerConnection {
     this.code = code.trim().toLowerCase()
     this.signalKey = secret ? deriveSignalKey(this.code, secret) : null
     this.closedByUser = false
+    this.announcedReady = false
+    this.knownOthers.clear()
     this.createPeer()
+    this.startPolling()
+  }
 
-    const url = `/api/signal?code=${encodeURIComponent(this.code)}&peer=${encodeURIComponent(
-      this.peerId,
-    )}`
-    const es = new EventSource(url)
-    this.events = es
+  // Poll the signaling endpoint on a fixed cadence until the direct link is up
+  // (or the user leaves). Each tick is a tiny request that returns immediately.
+  private startPolling() {
+    if (this.polling) return
+    this.polling = true
+    const loop = async () => {
+      if (!this.polling) return
+      await this.pollOnce()
+      if (!this.polling) return
+      this.pollTimer = setTimeout(loop, POLL_INTERVAL_MS)
+    }
+    void loop()
+  }
 
-    es.onmessage = (e) => {
-      let event: ServerEvent
-      try {
-        event = JSON.parse(e.data) as ServerEvent
-      } catch {
+  private async pollOnce() {
+    try {
+      const url = `/api/signal?code=${encodeURIComponent(this.code)}&peer=${encodeURIComponent(
+        this.peerId,
+      )}`
+      const res = await fetch(url, { cache: "no-store" })
+      if (!res.ok) {
+        if (this.status !== "connected" && !this.closedByUser) this.setStatus("connecting")
         return
       }
-      this.onServerEvent(event)
-    }
+      const data = (await res.json()) as SignalPoll
 
-    es.onerror = () => {
-      // Signaling drops are only fatal before the direct link is up. Once
-      // connected we deliberately close signaling ourselves.
-      if (this.status !== "connected" && !this.closedByUser) {
-        this.setStatus("connecting")
+      if (data.full) {
+        this.onServerEvent({ t: "full" })
+        return
       }
+      // First time we learn our role, announce readiness exactly once.
+      if (!this.announcedReady && data.role) {
+        this.announcedReady = true
+        this.onServerEvent({ t: "ready", role: data.role })
+      }
+      // Diff the present peers into join/leave events (host announces arrivals as
+      // "peer-joined" and thus makes the offer; guest sees the host as present).
+      const others = new Set(data.others ?? [])
+      for (const id of others) {
+        if (!this.knownOthers.has(id)) {
+          this.onServerEvent(this.role === "host" ? { t: "peer-joined" } : { t: "peer-present" })
+        }
+      }
+      for (const id of this.knownOthers) {
+        if (!others.has(id)) this.onServerEvent({ t: "peer-left" })
+      }
+      this.knownOthers = others
+      // Hand any relayed handshake notes to the same path SSE used to feed.
+      for (const m of data.msgs ?? []) this.onServerEvent({ t: "signal", data: m })
+    } catch {
+      // Transient network blip — the next tick retries. Only surface it as a
+      // status change before the direct link exists.
+      if (this.status !== "connected" && !this.closedByUser) this.setStatus("connecting")
     }
   }
 
@@ -308,8 +353,33 @@ export class PeerConnection {
   }
 
   private closeSignaling() {
-    this.events?.close()
-    this.events = null
+    this.polling = false
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer)
+      this.pollTimer = null
+    }
+  }
+
+  // Tell the broker we're gone so the other peer sees us leave immediately,
+  // instead of waiting for our presence TTL to lapse. Fire-and-forget; survives
+  // a tab close via sendBeacon / keepalive.
+  private sendLeave() {
+    if (!this.code) return
+    const body = JSON.stringify({ code: this.code, peer: this.peerId, leave: true })
+    try {
+      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+        navigator.sendBeacon("/api/signal", new Blob([body], { type: "application/json" }))
+      } else {
+        void fetch("/api/signal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+        }).catch(() => {})
+      }
+    } catch {
+      /* best effort — presence TTL will clear us either way */
+    }
   }
 
   // Compute the shared emoji safety string from the negotiated fingerprints.
@@ -556,6 +626,8 @@ export class PeerConnection {
   close() {
     this.closedByUser = true
     this.cleanupCall(false)
+    // Only worth telling the broker if the direct link never took over signaling.
+    if (this.polling) this.sendLeave()
     this.closeSignaling()
     try {
       this.channel?.close()
