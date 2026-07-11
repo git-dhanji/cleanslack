@@ -28,6 +28,8 @@ export function ConnectPanel() {
     sendActivity,
     deleteItem,
     disconnect,
+    leaveSafely,
+    destroyRoom,
     callState,
     callVideo,
     localStream,
@@ -44,12 +46,14 @@ export function ConnectPanel() {
   const searchParams = useSearchParams()
   const autoJoined = useRef(false)
 
-  // Open an invite link (/connect?code=...) → join automatically, once.
+  // Open an invite link (/connect?code=...#secret) → join automatically, once.
+  // The room secret rides in the URL fragment, which never reaches any server.
   useEffect(() => {
     const invite = searchParams.get("code")
     if (invite && !autoJoined.current && status === "idle") {
       autoJoined.current = true
-      void connect(invite, "join")
+      const secret = window.location.hash.replace(/^#/, "")
+      void connect(secret ? `${invite}#${secret}` : invite, "join")
     }
   }, [searchParams, status, connect])
 
@@ -88,6 +92,8 @@ export function ConnectPanel() {
         onDelete={deleteItem}
         onReconnect={reconnect}
         onDisconnect={disconnect}
+        onLeaveSafely={leaveSafely}
+        onDestroy={destroyRoom}
       />
     )
   }
@@ -117,6 +123,7 @@ export function ConnectPanel() {
           </div>
         ) : (
           <Lobby
+            initialTab={searchParams.get("tab") === "join" ? "join" : "create"}
             onConnect={connect}
             lastSession={lastSession}
             onReconnect={reconnect}

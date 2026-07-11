@@ -14,7 +14,7 @@ const MAP: Record<PeerStatus, { label: string; dot: string; text: string }> = {
 export function StatusBadge({ status }: { status: PeerStatus }) {
   const s = MAP[status]
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-xs", s.text)}>
+    <span className={cn("inline-flex items-center gap-1.5 text-xs leading-none", s.text)}>
       <span className={cn("h-1.5 w-1.5 rounded-full", s.dot)} />
       {s.label}
     </span>

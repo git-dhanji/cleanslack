@@ -9,8 +9,9 @@
 // Once the DataChannel opens, the signaling connection is closed — the server
 // is out of the loop and all data flows straight between the two peers.
 
-import type { ServerEvent, SignalRole } from "./signaling-types"
+import type { ServerEvent, SignalPoll, SignalRole } from "./signaling-types"
 import { deriveSafety } from "./safety"
+import { deriveSignalKey, sealSignal, openSignal, isSealed } from "./signal-crypto"
 
 export type PeerStatus =
   | "idle"
@@ -28,6 +29,11 @@ export interface CallMeta {
   video: boolean
 }
 
+// How often the browser polls the signaling endpoint during the handshake. Once
+// the direct data channel opens we stop polling entirely, so this cadence only
+// applies for the few seconds two peers take to find each other.
+const POLL_INTERVAL_MS = 1200
+
 export interface PeerHandlers {
   onStatus?: (status: PeerStatus) => void
   onControl?: (msg: Record<string, unknown>) => void // JSON control/text frames
@@ -41,9 +47,14 @@ export interface PeerHandlers {
 }
 
 function iceServers(): RTCIceServer[] {
-  const servers: RTCIceServer[] = [
-    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-  ]
+  // STUN is configurable so deployments can point at their own server; the
+  // default is a neutral provider rather than Google, so connecting doesn't
+  // leak both users' IPs to an ad company on every session.
+  const stunUrls = (process.env.NEXT_PUBLIC_STUN_URLS || "stun:stun.cloudflare.com:3478")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const servers: RTCIceServer[] = [{ urls: stunUrls }]
   const turnUrl = process.env.NEXT_PUBLIC_TURN_URL
   if (turnUrl) {
     servers.push({
@@ -58,7 +69,12 @@ function iceServers(): RTCIceServer[] {
 export class PeerConnection {
   private pc: RTCPeerConnection | null = null
   private channel: RTCDataChannel | null = null
-  private events: EventSource | null = null
+  // Signaling is short-polled (no long-lived stream). These track the loop and
+  // let us synthesize the same discrete events the engine already reacts to.
+  private polling = false
+  private pollTimer: ReturnType<typeof setTimeout> | null = null
+  private announcedReady = false
+  private knownOthers = new Set<string>()
   private readonly peerId: string
   private role: SignalRole | null = null
   private code = ""
@@ -67,6 +83,9 @@ export class PeerConnection {
   // Serialize remote-signal handling so an ICE candidate can never be processed
   // before the SDP it belongs to. Candidates that still arrive early are buffered.
   private signalChain: Promise<void> = Promise.resolve()
+  // AES-GCM key derived from the room secret; when set, every signaling payload
+  // is encrypted end-to-end and unencrypted ones are rejected.
+  private signalKey: Promise<CryptoKey> | null = null
   private remoteReady = false
   private pendingCandidates: RTCIceCandidateInit[] = []
   // Voice/video call state (renegotiated over the data channel).
@@ -96,34 +115,72 @@ export class PeerConnection {
     this.handlers.onStatus?.(s)
   }
 
-  // Begin: open signaling for `code` and wire up WebRTC.
-  connect(code: string) {
+  // Begin: open signaling for `code` and wire up WebRTC. When the room has a
+  // secret, the whole handshake is sealed with a key only the two peers hold —
+  // the signaling server relays ciphertext it cannot read or tamper with.
+  connect(code: string, secret?: string | null) {
     this.code = code.trim().toLowerCase()
+    this.signalKey = secret ? deriveSignalKey(this.code, secret) : null
     this.closedByUser = false
+    this.announcedReady = false
+    this.knownOthers.clear()
     this.createPeer()
+    this.startPolling()
+  }
 
-    const url = `/api/signal?code=${encodeURIComponent(this.code)}&peer=${encodeURIComponent(
-      this.peerId,
-    )}`
-    const es = new EventSource(url)
-    this.events = es
+  // Poll the signaling endpoint on a fixed cadence until the direct link is up
+  // (or the user leaves). Each tick is a tiny request that returns immediately.
+  private startPolling() {
+    if (this.polling) return
+    this.polling = true
+    const loop = async () => {
+      if (!this.polling) return
+      await this.pollOnce()
+      if (!this.polling) return
+      this.pollTimer = setTimeout(loop, POLL_INTERVAL_MS)
+    }
+    void loop()
+  }
 
-    es.onmessage = (e) => {
-      let event: ServerEvent
-      try {
-        event = JSON.parse(e.data) as ServerEvent
-      } catch {
+  private async pollOnce() {
+    try {
+      const url = `/api/signal?code=${encodeURIComponent(this.code)}&peer=${encodeURIComponent(
+        this.peerId,
+      )}`
+      const res = await fetch(url, { cache: "no-store" })
+      if (!res.ok) {
+        if (this.status !== "connected" && !this.closedByUser) this.setStatus("connecting")
         return
       }
-      this.onServerEvent(event)
-    }
+      const data = (await res.json()) as SignalPoll
 
-    es.onerror = () => {
-      // Signaling drops are only fatal before the direct link is up. Once
-      // connected we deliberately close signaling ourselves.
-      if (this.status !== "connected" && !this.closedByUser) {
-        this.setStatus("connecting")
+      if (data.full) {
+        this.onServerEvent({ t: "full" })
+        return
       }
+      // First time we learn our role, announce readiness exactly once.
+      if (!this.announcedReady && data.role) {
+        this.announcedReady = true
+        this.onServerEvent({ t: "ready", role: data.role })
+      }
+      // Diff the present peers into join/leave events (host announces arrivals as
+      // "peer-joined" and thus makes the offer; guest sees the host as present).
+      const others = new Set(data.others ?? [])
+      for (const id of others) {
+        if (!this.knownOthers.has(id)) {
+          this.onServerEvent(this.role === "host" ? { t: "peer-joined" } : { t: "peer-present" })
+        }
+      }
+      for (const id of this.knownOthers) {
+        if (!others.has(id)) this.onServerEvent({ t: "peer-left" })
+      }
+      this.knownOthers = others
+      // Hand any relayed handshake notes to the same path SSE used to feed.
+      for (const m of data.msgs ?? []) this.onServerEvent({ t: "signal", data: m })
+    } catch {
+      // Transient network blip — the next tick retries. Only surface it as a
+      // status change before the direct link exists.
+      if (this.status !== "connected" && !this.closedByUser) this.setStatus("connecting")
     }
   }
 
@@ -203,6 +260,19 @@ export class PeerConnection {
   private async onRemoteSignal(data: unknown) {
     const pc = this.pc
     if (!pc || !data || typeof data !== "object") return
+
+    // Rooms with a secret speak ONLY ciphertext: plaintext payloads are dropped
+    // (nothing to downgrade to), and payloads that don't decrypt — wrong secret
+    // or a tampering relay — are silently ignored.
+    if (this.signalKey) {
+      if (!isSealed(data)) return
+      const opened = await openSignal(await this.signalKey, data)
+      if (opened === null || typeof opened !== "object") return
+      data = opened
+    } else if (isSealed(data)) {
+      return // encrypted payload for a secretless room — not for us
+    }
+
     const payload = data as { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit }
 
     try {
@@ -269,19 +339,47 @@ export class PeerConnection {
   }
 
   private postSignal(data: unknown) {
-    void fetch("/api/signal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: this.code, peer: this.peerId, data }),
-      keepalive: true,
-    }).catch(() => {
+    void (async () => {
+      const payload = this.signalKey ? await sealSignal(await this.signalKey, data) : data
+      await fetch("/api/signal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: this.code, peer: this.peerId, data: payload }),
+        keepalive: true,
+      })
+    })().catch(() => {
       /* peer may not be listening yet; ICE will retry paths */
     })
   }
 
   private closeSignaling() {
-    this.events?.close()
-    this.events = null
+    this.polling = false
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer)
+      this.pollTimer = null
+    }
+  }
+
+  // Tell the broker we're gone so the other peer sees us leave immediately,
+  // instead of waiting for our presence TTL to lapse. Fire-and-forget; survives
+  // a tab close via sendBeacon / keepalive.
+  private sendLeave() {
+    if (!this.code) return
+    const body = JSON.stringify({ code: this.code, peer: this.peerId, leave: true })
+    try {
+      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+        navigator.sendBeacon("/api/signal", new Blob([body], { type: "application/json" }))
+      } else {
+        void fetch("/api/signal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+        }).catch(() => {})
+      }
+    } catch {
+      /* best effort — presence TTL will clear us either way */
+    }
   }
 
   // Compute the shared emoji safety string from the negotiated fingerprints.
@@ -528,6 +626,8 @@ export class PeerConnection {
   close() {
     this.closedByUser = true
     this.cleanupCall(false)
+    // Only worth telling the broker if the direct link never took over signaling.
+    if (this.polling) this.sendLeave()
     this.closeSignaling()
     try {
       this.channel?.close()
@@ -546,35 +646,6 @@ export class PeerConnection {
   }
 }
 
-// Generate a friendly random connection code (e.g. "brave-otter-4821").
-const ADJECTIVES = [
-  "brave", "calm", "clever", "swift", "quiet", "bright", "bold", "warm",
-  "cool", "keen", "mellow", "noble", "vivid", "amber", "azure", "cosmic",
-]
-const NOUNS = [
-  "otter", "falcon", "cedar", "harbor", "meadow", "comet", "river", "lynx",
-  "willow", "ember", "pixel", "cobalt", "summit", "orbit", "quartz", "raven",
-]
-
-// Cryptographically-strong random in [0, max). Falls back to Math.random only
-// where WebCrypto is unavailable (it isn't, in any browser we target).
-function secureInt(max: number): number {
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    // Rejection-sample to avoid modulo bias.
-    const limit = Math.floor(0xffffffff / max) * max
-    const buf = new Uint32Array(1)
-    let x = 0
-    do {
-      crypto.getRandomValues(buf)
-      x = buf[0]
-    } while (x >= limit)
-    return x % max
-  }
-  return Math.floor(Math.random() * max)
-}
-
-export function generateCode(): string {
-  const pick = <T,>(arr: T[]) => arr[secureInt(arr.length)]
-  const num = 1000 + secureInt(9000)
-  return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${num}`
-}
+// Re-exported for existing importers; implementation lives in lib/code-gen
+// so the server can share it too.
+export { generateCode } from "./code-gen"
