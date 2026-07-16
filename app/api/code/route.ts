@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { hasRedis, redis } from "@/lib/upstash"
 import { generateCode } from "@/lib/code-gen"
+import { codeRateLimiter, getClientIdentifier, checkRateLimit } from "@/lib/rate-limit"
 
 // Code reservation — ensures two people never end up on the same connection
 // code. Redis stores only the code name (as a key) with a TTL; never any chat
@@ -25,6 +26,13 @@ function normalize(raw: string | null | undefined): string {
 // lobby only ever shows a code no one currently holds.
 // GET ?code=... → is that specific code free to use?
 export async function GET(request: NextRequest) {
+  // Rate limiting: prevent code enumeration attacks
+  const identifier = getClientIdentifier(request)
+  const rateLimitCheck = await checkRateLimit(codeRateLimiter, identifier)
+  if (!rateLimitCheck.success) {
+    return rateLimitCheck.response!
+  }
+
   const params = new URL(request.url).searchParams
 
   if (params.get("fresh")) {
@@ -57,17 +65,63 @@ export async function GET(request: NextRequest) {
 
 // Reserve (default) or release a code.
 export async function POST(request: NextRequest) {
-  let body: { code?: string; action?: string }
+  // Rate limiting: prevent code reservation spam
+  const identifier = getClientIdentifier(request)
+  const rateLimitCheck = await checkRateLimit(codeRateLimiter, identifier)
+  if (!rateLimitCheck.success) {
+    return rateLimitCheck.response!
+  }
+
+  let body: unknown
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 })
   }
 
-  const code = normalize(body.code)
-  if (code.length < 3) return NextResponse.json({ error: "invalid code" }, { status: 400 })
+  // Strict input validation
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return NextResponse.json({ error: "invalid payload" }, { status: 400 })
+  }
 
-  if (body.action === "release") {
+  const payload = body as Record<string, unknown>
+
+  // Validate only expected fields exist
+  const allowedFields = ["code", "action"]
+  const receivedFields = Object.keys(payload)
+  const unexpectedFields = receivedFields.filter(f => !allowedFields.includes(f))
+  if (unexpectedFields.length > 0) {
+    return NextResponse.json({ error: "unexpected fields" }, { status: 400 })
+  }
+
+  // Validate code field
+  if (!("code" in payload) || typeof payload.code !== "string") {
+    return NextResponse.json({ error: "code must be a string" }, { status: 400 })
+  }
+
+  const code = normalize(payload.code)
+
+  // Validate code format: must match expected pattern (adjective-noun-number)
+  // or at least contain only alphanumeric and hyphens
+  if (code.length < 3 || code.length > 64) {
+    return NextResponse.json({ error: "code length must be 3-64 characters" }, { status: 400 })
+  }
+
+  if (!/^[a-z0-9-]+$/.test(code)) {
+    return NextResponse.json({ error: "code contains invalid characters" }, { status: 400 })
+  }
+
+  // Validate action field if present
+  if ("action" in payload) {
+    if (typeof payload.action !== "string") {
+      return NextResponse.json({ error: "action must be a string" }, { status: 400 })
+    }
+    if (payload.action !== "release" && payload.action !== "reserve") {
+      return NextResponse.json({ error: "action must be 'reserve' or 'release'" }, { status: 400 })
+    }
+  }
+
+  if (payload.action === "release") {
     if (!hasRedis()) return NextResponse.json({ ok: true, db: false })
     try {
       await redis(["DEL", key(code)])

@@ -1,6 +1,12 @@
 import type { NextRequest } from "next/server"
-import type { SignalPoll, SignalPost } from "@/lib/signaling-types"
+import type { SignalPoll } from "@/lib/signaling-types"
 import { hasRedis, pipeline, redis } from "@/lib/upstash"
+import {
+  signalPollRateLimiter,
+  signalPostRateLimiter,
+  getSignalIdentifier,
+  checkRateLimit,
+} from "@/lib/rate-limit"
 
 // The signaling broker. Its ONLY job is to introduce two peers who share a code
 // so they can exchange the WebRTC handshake (SDP + ICE); once the direct link is
@@ -73,9 +79,32 @@ function activePeers(
 // and drain any handshake notes the other peer left for us. Returns immediately.
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const code = normalizeCode(searchParams.get("code"))
-  const peerId = searchParams.get("peer")?.trim()
-  if (!code || !peerId) return json({ error: "code and peer are required" }, 400)
+  const rawCode = searchParams.get("code")
+  const rawPeer = searchParams.get("peer")
+
+  // Validate required parameters
+  if (!rawCode || !rawPeer) {
+    return json({ error: "code and peer are required" }, 400)
+  }
+
+  const code = normalizeCode(rawCode)
+  const peerId = rawPeer.trim()
+
+  if (!code) return json({ error: "invalid code format" }, 400)
+  if (!peerId) return json({ error: "peer id required" }, 400)
+
+  // Validate peer id format (should be a UUID)
+  if (!/^[a-f0-9-]{36}$/.test(peerId)) {
+    return json({ error: "invalid peer id format" }, 400)
+  }
+
+  // Rate limiting: prevent polling spam (per IP + code combination)
+  const identifier = getSignalIdentifier(request, code)
+  const rateLimitCheck = await checkRateLimit(signalPollRateLimiter, identifier)
+  if (!rateLimitCheck.success) {
+    return rateLimitCheck.response!
+  }
+
   if (!hasRedis()) return json({ error: "signaling unavailable" }, 503)
 
   const now = Date.now()
@@ -97,7 +126,7 @@ export async function GET(request: NextRequest) {
     // A third participant is rejected — pull our own fields back out so we don't
     // linger in the set and confuse the two who got there first.
     if (idx < 0 || idx >= MAX_PEERS) {
-      await redis(["HDEL", presenceKey, `${peerId}:c`, `${peerId}:s`]).catch(() => {})
+      await redis(["HDEL", presenceKey, `${peerId}:c`, `${peerId}:s`]).catch(() => { })
       return json<SignalPoll>({ role: null, full: true, others: [], msgs: [] })
     }
 
@@ -131,19 +160,64 @@ export async function GET(request: NextRequest) {
 // outbox, which the other peer drains on its next poll. A `leave` note instead
 // removes our presence immediately so the peer sees us go without waiting for TTL.
 export async function POST(request: NextRequest) {
-  let body: SignalPost
+  let body: unknown
   try {
-    body = (await request.json()) as SignalPost
+    body = await request.json()
   } catch {
     return json({ error: "invalid json" }, 400)
   }
 
-  const code = normalizeCode(body.code)
-  const peerId = body.peer?.trim()
-  if (!code || !peerId) return json({ error: "code and peer are required" }, 400)
+  // Strict input validation
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return json({ error: "invalid payload" }, 400)
+  }
+
+  const payload = body as Record<string, unknown>
+
+  // Validate only expected fields exist
+  const allowedFields = ["code", "peer", "leave", "data"]
+  const receivedFields = Object.keys(payload)
+  const unexpectedFields = receivedFields.filter(f => !allowedFields.includes(f))
+  if (unexpectedFields.length > 0) {
+    return json({ error: "unexpected fields" }, 400)
+  }
+
+  // Validate required fields with proper types
+  if (!("code" in payload) || typeof payload.code !== "string") {
+    return json({ error: "code must be a string" }, 400)
+  }
+  if (!("peer" in payload) || typeof payload.peer !== "string") {
+    return json({ error: "peer must be a string" }, 400)
+  }
+
+  const code = normalizeCode(payload.code)
+  const peerId = payload.peer.trim()
+
+  if (!code) return json({ error: "invalid code format" }, 400)
+  if (!peerId) return json({ error: "peer id required" }, 400)
+
+  // Validate peer id format (should be a UUID)
+  if (!/^[a-f0-9-]{36}$/.test(peerId)) {
+    return json({ error: "invalid peer id format" }, 400)
+  }
+
+  // Rate limiting: prevent message spam (per IP + code combination)
+  const identifier = getSignalIdentifier(request, code)
+  const rateLimitCheck = await checkRateLimit(signalPostRateLimiter, identifier)
+  if (!rateLimitCheck.success) {
+    return rateLimitCheck.response!
+  }
+
   if (!hasRedis()) return json({ error: "signaling unavailable" }, 503)
 
-  if (body.leave) {
+  // Validate optional leave field
+  if ("leave" in payload) {
+    if (typeof payload.leave !== "boolean") {
+      return json({ error: "leave must be a boolean" }, 400)
+    }
+  }
+
+  if (payload.leave) {
     try {
       await redis(["HDEL", `pr:${code}`, `${peerId}:c`, `${peerId}:s`])
     } catch {
@@ -152,19 +226,22 @@ export async function POST(request: NextRequest) {
     return json({ ok: true })
   }
 
-  if (body.data == null) return json({ error: "no data" }, 400)
+  // Validate data field when not leaving
+  if (!("data" in payload)) {
+    return json({ error: "no data" }, 400)
+  }
 
-  let payload: string
+  let payloadStr: string
   try {
-    payload = JSON.stringify(body.data)
+    payloadStr = JSON.stringify(payload.data)
   } catch {
     return json({ error: "unserializable data" }, 400)
   }
-  if (payload.length > MAX_DATA) return json({ error: "payload too large" }, 413)
+  if (payloadStr.length > MAX_DATA) return json({ error: "payload too large" }, 413)
 
   try {
     await pipeline([
-      ["RPUSH", `mb:${code}:${peerId}`, payload],
+      ["RPUSH", `mb:${code}:${peerId}`, payloadStr],
       ["PEXPIRE", `mb:${code}:${peerId}`, MAILBOX_TTL_MS],
     ])
     return json({ delivered: true })

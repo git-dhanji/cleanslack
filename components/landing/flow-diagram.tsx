@@ -11,6 +11,7 @@ import {
   AnimatePresence,
   type MotionValue,
 } from "motion/react"
+import { config } from "@/config"
 
 // A single, self-contained explainer of the whole connection, in the spirit of
 // Clerk's diagrams: glowing nodes, light flowing along the wires, one clean
@@ -57,7 +58,7 @@ function AnimatedDiagram() {
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      <svg viewBox="0 0 480 230" className="w-full" role="img" aria-label="How a Wisp connection works">
+      <svg viewBox="0 0 480 230" className="w-full" role="img" aria-label={`How a ${config.app.name} connection works`}>
         <defs>
           <radialGradient id="glowP" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.55" />

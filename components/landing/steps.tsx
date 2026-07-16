@@ -1,11 +1,12 @@
 import { KeyRound, Share2, Wifi } from "lucide-react"
 import { Reveal } from "@/components/motion/reveal"
+import { config } from "@/config"
 
 const STEPS = [
   {
     icon: KeyRound,
     title: "1 · Create a code",
-    body: "Open Wisp and get a unique connection code — or type your own number. Nothing is registered anywhere.",
+    body: `Open ${config.app.name} and get a unique connection code — or type your own number. Nothing is registered anywhere.`,
   },
   {
     icon: Share2,

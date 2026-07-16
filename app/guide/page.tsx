@@ -2,24 +2,26 @@ import Link from "next/link"
 import { Check, X, Info, AlertTriangle } from "lucide-react"
 import { PageShell, SectionTitle, Prose } from "@/components/content/page-shell"
 
+import { config } from "@/config"
+
 export const metadata = {
-  title: "Guide — Wisp",
+  title: `Guide — ${config.app.name}`,
   description:
-    "How Wisp works, what makes it private, what the server can and cannot see, and its honest limitations.",
+    `How ${config.app.name} works, what makes it private, what the server can and cannot see, and its honest limitations.`,
 }
 
 export default function GuidePage() {
   return (
     <PageShell
       eyebrow="Guide"
-      title="How Wisp works"
+      title={`How ${config.app.name} works`}
       intro="A plain-language explanation of the connection model, the privacy guarantees, and the trade-offs — so you know exactly what you are trusting."
     >
       <SectionTitle>The idea</SectionTitle>
       <Prose>
         <p>
           Most chat apps are a <em>middleman</em>: your messages travel to a company&apos;s servers,
-          get stored in a database, and are forwarded to the other person. Wisp removes the
+          get stored in a database, and are forwarded to the other person. {config.app.name} removes the
           middleman. Two devices talk <strong>directly</strong> to each other using a browser
           technology called WebRTC.
         </p>
@@ -39,7 +41,7 @@ export default function GuidePage() {
         </p>
         <p>
           <strong>2 · Direct link.</strong> Once the path is found, an encrypted channel opens
-          straight between the two devices. Wisp closes the signaling connection at this point.
+          straight between the two devices. {config.app.name} closes the signaling connection at this point.
           From here every message and file flows peer-to-peer, and the server carries none of it.
         </p>
       </Prose>

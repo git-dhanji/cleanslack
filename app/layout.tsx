@@ -8,11 +8,12 @@ import "./globals.css"
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
+import { config } from "@/config"
+
 export const metadata: Metadata = {
-  title: "Wisp — Private peer-to-peer chat & file sharing",
-  description:
-    "Connect two devices directly, browser-to-browser. End-to-end encrypted chat and file transfer with no accounts, no stored data, and nothing passing through a server.",
-  generator: "Wisp",
+  title: `${config.app.name} — Private peer-to-peer chat & file sharing`,
+  description: config.app.description,
+  generator: config.app.name,
 }
 
 export default function RootLayout({

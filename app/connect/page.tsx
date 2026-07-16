@@ -1,8 +1,10 @@
 import { Suspense } from "react"
 import { ConnectPanel } from "@/components/connect/connect-panel"
 
+import { config } from "@/config"
+
 export const metadata = {
-  title: "Connect — Wisp",
+  title: `Connect — ${config.app.name}`,
   // Invite links carry a connection code in the URL — keep them out of search indexes.
   robots: { index: false, follow: false },
 }

@@ -26,6 +26,11 @@ type Command = (string | number)[]
 export async function pipeline(commands: Command[]): Promise<unknown[]> {
   if (!REST_URL || !REST_TOKEN) throw new Error("Upstash Redis is not configured")
 
+  console.log("🔄 Redis pipeline executing:", {
+    commandCount: commands.length,
+    commands: commands.map(cmd => cmd[0])
+  })
+
   const res = await fetch(`${REST_URL}/pipeline`, {
     method: "POST",
     headers: {
@@ -35,9 +40,18 @@ export async function pipeline(commands: Command[]): Promise<unknown[]> {
     body: JSON.stringify(commands),
     cache: "no-store",
   })
-  if (!res.ok) throw new Error(`Upstash request failed: ${res.status}`)
+
+  if (!res.ok) {
+    console.error("❌ Redis pipeline failed:", res.status)
+    throw new Error(`Upstash request failed: ${res.status}`)
+  }
 
   const data = (await res.json()) as { result?: unknown; error?: string }[]
+  console.log("✅ Redis pipeline completed:", {
+    resultCount: data.length,
+    results: data.map(d => d.result)
+  })
+
   return data.map((entry) => {
     if (entry.error) throw new Error(entry.error)
     return entry.result
@@ -46,6 +60,8 @@ export async function pipeline(commands: Command[]): Promise<unknown[]> {
 
 // Run a single Redis command.
 export async function redis(command: Command): Promise<unknown> {
+  console.log("🔄 Redis single command:", command[0])
   const [result] = await pipeline([command])
+  console.log("✅ Redis command result:", result)
   return result
 }
