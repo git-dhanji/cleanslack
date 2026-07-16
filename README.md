@@ -89,18 +89,20 @@ npm run dev
 # open http://localhost:3000 on two devices/tabs to try a connection
 ```
 
-No secrets are required. MongoDB is optional — it is used only to reserve connection codes so two
-people never collide on the same one; the app runs fine without it (code uniqueness then falls back
-to the in-memory room cap). The other optional configuration is a TURN relay (see below).
+MongoDB is required. It is used for two things only — reserving connection codes so two people
+never collide, and brokering the WebRTC handshake so the two peers can find each other even when
+they land on different serverless instances. It stores no messages, files, or identities, and every
+handshake note it holds is deleted within seconds by a TTL index. The other optional configuration
+is a TURN relay (see below).
 
 ### Configuration (`.env.local`)
 
 ```bash
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-# Optional — used ONLY to reserve connection codes (never messages/identities).
-# Omit it and code uniqueness falls back to the in-memory room cap.
-MONGODB_URI=mongodb://localhost:27017/team-chat
+# Required — code reservation + the cross-instance signaling handshake.
+# Stores no messages/identities; TTL indexes wipe everything within seconds.
+MONGODB_URI=mongodb://localhost:27017/wisp
 
 # Optional TURN relay for the ~10-20% of connections behind strict NATs.
 # It only ever carries DTLS-encrypted traffic, so it cannot read your data.
@@ -111,11 +113,11 @@ MONGODB_URI=mongodb://localhost:27017/team-chat
 
 ## Deployment note
 
-The signaling relay keeps its state in the server process's memory. That works out of the box on a
-single long-lived Node server (`next start`) or a VPS. On a horizontally-scaled or serverless
-platform, both peers must reach the **same** instance — front the signaling route with a shared
-pub/sub (e.g. Redis) if you deploy that way. This is deliberate: keeping signaling minimal is what
-lets the server know nothing.
+Signaling is brokered through MongoDB (a tiny presence set + an ephemeral, TTL-expiring mailbox),
+so it works out of the box on serverless / horizontally-scaled platforms like Vercel: the two peers
+coordinate through the shared database rather than a single server's memory, and there is no
+sticky-session requirement. Just set `MONGODB_URI` in your deployment's environment. The database
+only ever holds handshake notes in transit — never chat, files, or identities.
 
 ## Honest limitations
 

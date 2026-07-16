@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { PeerConnection, type PeerStatus, type CallState } from "@/lib/webrtc"
 import { reserveCode, releaseCode } from "@/lib/codes"
+import { generateSecret, splitFullCode } from "@/lib/code-gen"
 
 export type { CallState }
 
@@ -52,10 +53,11 @@ function newId() {
     : Math.random().toString(36).slice(2)
 }
 
-// Remember the last successful connection so a returning user can rejoin without
-// retyping the code. Only the code + role are kept, locally, for 24h.
+// Remember the last connection so a returning user can rejoin without retyping
+// the code. Only the code + role are kept, locally, for 2 days — the same window
+// the server keeps the code reservation alive, so "safe exit" stays resumable.
 const LAST_KEY = "wisp:last"
-const LAST_TTL = 24 * 60 * 60 * 1000
+const LAST_TTL = 2 * 24 * 60 * 60 * 1000
 
 export interface LastSession {
   code: string
@@ -96,7 +98,8 @@ function clearLast() {
 export function usePeer() {
   const peerRef = useRef<PeerConnection | null>(null)
   const incomingRef = useRef<IncomingFile | null>(null)
-  const reservedRef = useRef<string | null>(null) // code we reserved (release on exit)
+  const reservedRef = useRef<string | null>(null) // code we reserved (release on destroy)
+  const codeRef = useRef("") // current code, readable from stable callbacks
   const sendChainRef = useRef<Promise<void>>(Promise.resolve()) // serialize outgoing files
   const [status, setStatus] = useState<PeerStatus>("idle")
   const [items, setItems] = useState<ChatItem[]>([])
@@ -141,6 +144,26 @@ export function usePeer() {
       prev.map((it) => (it.id === id && it.kind === "file" ? { ...it, ...patch } : it)),
     )
   }, [])
+
+  // Full teardown back to the lobby with NO resume: clears chat, forgets the
+  // last session, and drops the reservation reference. Used by "exit & destroy"
+  // (locally and when the peer destroys). Does not itself delete the DB code —
+  // the caller does that so the exact code is known.
+  const wipeEverything = useCallback(() => {
+    peerRef.current?.close()
+    peerRef.current = null
+    incomingRef.current = null
+    reservedRef.current = null
+    codeRef.current = ""
+    clearLast()
+    setLastSession(null)
+    setStatus("idle")
+    setCode("")
+    setItems([])
+    setPeerActivity("idle")
+    setSafety(null)
+    resetCall()
+  }, [resetCall])
 
   const handleControl = useCallback(
     (msg: Record<string, unknown>) => {
@@ -200,9 +223,16 @@ export function usePeer() {
             incomingRef.current = null
           }
           break
+        case "destroy":
+          // The other person chose "exit & destroy": wipe the whole room on our
+          // side too — messages, the resume memory, and the code reservation.
+          if (codeRef.current) releaseCode(codeRef.current)
+          toast.error("The other person ended and destroyed this room.")
+          wipeEverything()
+          break
       }
     },
-    [addItem, patchItem],
+    [addItem, patchItem, wipeEverything],
   )
 
   const handleBinary = useCallback(
@@ -218,14 +248,17 @@ export function usePeer() {
   )
 
   const openPeer = useCallback(
-    (normalized: string) => {
+    (publicCode: string, secret: string | null, fullCode: string) => {
       peerRef.current?.close()
       incomingRef.current = null
       setItems([])
       setPeerActivity("idle")
       setSafety(null)
       resetCall()
-      setCode(normalized)
+      // Display (and remember) the full "public#secret" code — that's what the
+      // peer needs. Server-facing operations use only the public part.
+      setCode(fullCode)
+      codeRef.current = publicCode
 
       const peer = new PeerConnection({
         onStatus: setStatus,
@@ -245,29 +278,35 @@ export function usePeer() {
         onError: (message) => toast.error(message),
       })
       peerRef.current = peer
-      peer.connect(normalized)
+      peer.connect(publicCode, secret)
     },
     [handleControl, handleBinary, resetCall],
   )
 
-  // Connect to a code. In "create" mode we first reserve the code so two hosts
-  // can never collide; returns { taken: true } if someone already holds it.
+  // Connect to a code ("public" or "public#secret"). In "create" mode we first
+  // reserve the public part so two hosts can never collide, and always attach a
+  // secret so the room's signaling is end-to-end encrypted; the server only
+  // ever sees the public part. Returns { taken: true } if someone holds it.
   const connect = useCallback(
     async (rawCode: string, mode: ConnectMode = "join"): Promise<{ taken: boolean }> => {
-      const normalized = rawCode.trim().toLowerCase()
-      if (normalized.length < 3) return { taken: false }
+      const { code: publicCode, secret: parsed } = splitFullCode(rawCode)
+      if (publicCode.length < 3) return { taken: false }
+
+      // A created room always gets a secret, even for a hand-typed code.
+      const secret = parsed ?? (mode === "create" ? generateSecret() : null)
 
       if (mode === "create") {
-        const result = await reserveCode(normalized)
+        const result = await reserveCode(publicCode)
         if (result.taken) return { taken: true }
-        reservedRef.current = normalized
+        reservedRef.current = publicCode
       }
 
-      const session: LastSession = { code: normalized, mode }
+      const fullCode = secret ? `${publicCode}#${secret}` : publicCode
+      const session: LastSession = { code: fullCode, mode }
       writeLast(session)
       setLastSession(session)
 
-      openPeer(normalized)
+      openPeer(publicCode, secret, fullCode)
       return { taken: false }
     },
     [openPeer],
@@ -369,6 +408,8 @@ export function usePeer() {
     setCamOn(peerRef.current?.toggleCam() ?? true)
   }, [])
 
+  // Abandon before/around connecting (waiting cancel, "back to start"): release
+  // the code and clear, but keep it simple — nothing to resume yet.
   const disconnect = useCallback(() => {
     peerRef.current?.close()
     peerRef.current = null
@@ -377,6 +418,7 @@ export function usePeer() {
       releaseCode(reservedRef.current)
       reservedRef.current = null
     }
+    codeRef.current = ""
     setStatus("idle")
     setCode("")
     setItems([])
@@ -385,15 +427,37 @@ export function usePeer() {
     resetCall()
   }, [resetCall])
 
-  // Release any reserved code and tear down on unmount or tab close.
+  // Safe exit: leave the conversation but KEEP the code reserved and the resume
+  // memory, so either person can rejoin/resume the same room within the window.
+  const leaveSafely = useCallback(() => {
+    peerRef.current?.close()
+    peerRef.current = null
+    incomingRef.current = null
+    codeRef.current = ""
+    setStatus("idle")
+    setCode("")
+    setItems([])
+    setPeerActivity("idle")
+    setSafety(null)
+    resetCall()
+    // reservedRef + lastSession are intentionally left intact for resume.
+  }, [resetCall])
+
+  // Exit & destroy: tell the peer to wipe everything, delete the code from the
+  // database, and tear the whole room down on both sides — no resume possible.
+  const destroyRoom = useCallback(() => {
+    const theCode = codeRef.current
+    peerRef.current?.sendControl({ k: "destroy" })
+    if (theCode) releaseCode(theCode)
+    // Give the destroy frame a moment to flush over the channel, then tear down.
+    setTimeout(() => wipeEverything(), 250)
+  }, [wipeEverything])
+
+  // Tear down the live connection on unmount. The reservation is deliberately
+  // NOT released here — a tab close should still be resumable within the window;
+  // only an explicit "exit & destroy" removes the code.
   useEffect(() => {
-    const release = () => {
-      if (reservedRef.current) releaseCode(reservedRef.current)
-    }
-    window.addEventListener("beforeunload", release)
     return () => {
-      window.removeEventListener("beforeunload", release)
-      release()
       peerRef.current?.close()
       peerRef.current = null
     }
@@ -414,6 +478,8 @@ export function usePeer() {
     sendActivity,
     deleteItem,
     disconnect,
+    leaveSafely,
+    destroyRoom,
     // calls
     callState,
     callVideo,

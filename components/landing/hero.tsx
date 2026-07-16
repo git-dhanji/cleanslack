@@ -4,6 +4,7 @@ import Link from "next/link"
 import { motion, type Variants } from "motion/react"
 import { ArrowRight, ShieldCheck, Lock, UserX, ServerOff, Infinity as InfinityIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { config } from "@/config"
 
 const container: Variants = {
   hidden: {},
@@ -58,7 +59,7 @@ export function Hero() {
             variants={item}
             className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-muted-foreground sm:text-xl"
           >
-            Wisp links two devices directly, browser to browser. Share a code, connect, and chat,
+            {config.app.name} links two devices directly, browser to browser. Share a code, connect, and chat,
             call, or send files — end-to-end encrypted, with nothing passing through, or stored on,
             any server.
           </motion.p>

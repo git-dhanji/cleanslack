@@ -1,7 +1,6 @@
 import type React from "react"
 import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
-import { Analytics } from "@vercel/analytics/next"
 import { Toaster } from "@/components/ui/sonner"
 import { ThemeProvider } from "@/components/theme-provider"
 import "./globals.css"
@@ -9,18 +8,12 @@ import "./globals.css"
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
+import { config } from "@/config"
+
 export const metadata: Metadata = {
-  title: "Wisp — Private peer-to-peer chat & file sharing",
-  description:
-    "Connect two devices directly, browser-to-browser. End-to-end encrypted chat and file transfer with no accounts, no stored data, and nothing passing through a server.",
-  generator: "Wisp",
-  icons: {
-    icon: [
-      { url: "/ind-slack-icon.svg", type: "image/svg+xml" },
-      { url: "/ind-slack-icon.png", type: "image/png" },
-    ],
-    apple: "/ind-slack-icon.png",
-  },
+  title: `${config.app.name} — Private peer-to-peer chat & file sharing`,
+  description: config.app.description,
+  generator: config.app.name,
 }
 
 export default function RootLayout({
@@ -34,7 +27,6 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
           {children}
           <Toaster />
-          <Analytics />
         </ThemeProvider>
       </body>
     </html>

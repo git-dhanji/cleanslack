@@ -38,8 +38,11 @@ export function SiteHeader() {
             <div className="mx-1 h-5 w-px bg-border" />
           </div>
           <ThemeToggle />
+          <Button asChild size="sm" variant="outline" className="ml-1">
+            <Link href="/connect?tab=join">Join</Link>
+          </Button>
           <Button asChild size="sm" className="ml-1">
-            <Link href="/connect">Start</Link>
+            <Link href="/connect?tab=create">Create</Link>
           </Button>
         </nav>
       </div>

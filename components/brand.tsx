@@ -1,14 +1,15 @@
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { config } from "@/config"
 
-/** The Wisp wordmark + mark. Minimal: two linked nodes. */
+/** The wordmark + mark. Minimal: two linked nodes. */
 export function Brand({ className, href = "/" }: { className?: string; href?: string | null }) {
   const inner = (
     <span className={cn("inline-flex items-center gap-2 font-semibold tracking-tight", className)}>
       <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary text-primary-foreground">
         <LinkMark className="h-4 w-4" />
       </span>
-      <span className="text-lg">Wisp</span>
+      <span className="text-lg">{config.app.name}</span>
     </span>
   )
   if (href === null) return inner
