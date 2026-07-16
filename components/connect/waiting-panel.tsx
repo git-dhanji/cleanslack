@@ -14,8 +14,16 @@ export function WaitingPanel({ code, onCancel }: { code: string; onCancel: () =>
   // The secret (after "#") goes in the URL FRAGMENT: browsers never send the
   // fragment to any server, so even our own server can't learn it from a click.
   const [publicCode, secret] = code.split("#")
+
+  // Build the shareable link. In production, prefer NEXT_PUBLIC_APP_URL when set
+  // to ensure consistent links even behind proxies/load balancers.
+  const baseUrl =
+    typeof window !== "undefined"
+      ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
+      : (process.env.NEXT_PUBLIC_APP_URL || "")
+
   const shareLink =
-    (typeof window !== "undefined" ? window.location.origin : "") +
+    baseUrl +
     `/connect?code=${encodeURIComponent(publicCode)}` +
     (secret ? `#${secret}` : "")
 
